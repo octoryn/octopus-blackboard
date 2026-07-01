@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+*.log
+
+# Local blackboard data (the board lives under .octoboard/ by default).
+.octoboard/
+*.octoboard.db
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
