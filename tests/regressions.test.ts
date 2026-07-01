@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import Database from "better-sqlite3";
 import * as gitmod from "../src/git.js";
-import { git, initRepo, openBoard, tempDir } from "./helpers.js";
+import { git, initRepo, openBoard, rawTamper, tempDir } from "./helpers.js";
 
 /**
  * Regression tests for defects found in the adversarial review. Each test
@@ -24,7 +23,7 @@ describe("chain: tail-truncation detection (adversarial #core-1)", () => {
     expect(b.verifyChain().ok).toBe(true);
     b.close();
 
-    const raw = new Database(dbPath);
+    const raw = rawTamper(dbPath);
     raw.prepare("DELETE FROM timeline WHERE seq = 3").run(); // truncate the tail
     raw.close();
 

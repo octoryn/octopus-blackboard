@@ -17,7 +17,7 @@ program
   .description(
     "Octopus Blackboard — shared memory & AI attribution for coding agents",
   )
-  .version("0.1.3")
+  .version("0.1.4")
   .option("--board <dir>", "board directory (defaults to nearest .octoboard/)")
   .option("--as <agent>", "identity to write as (or set OCTOBOARD_AGENT)")
   .option(
@@ -390,12 +390,42 @@ program
   .argument("<ref>", "pointer to evidence: file path, URL, log, test run")
   .option("--note <note>", "what this evidence shows")
   .option("--for <target>", "what it supports, e.g. task:auth-mw")
-  .description("attach evidence to the board")
+  .description("attach evidence to the board (local files are content-hashed)")
   .action((ref, opts) => {
     const b = board();
-    b.evidence(actor(), ref, opts.note ?? null, opts.for ?? null);
+    const ev = b.evidence(actor(), ref, opts.note ?? null, opts.for ?? null);
     b.close();
-    console.log("Evidence attached.");
+    console.log(
+      ev.sha256
+        ? `Evidence attached (sha256 ${ev.sha256.slice(0, 12)}…).`
+        : "Evidence attached.",
+    );
+  });
+
+program
+  .command("evidence-verify")
+  .option("--json", "output raw JSON")
+  .description("re-check content-hashed evidence files for tampering")
+  .action((opts) => {
+    const b = board();
+    const checks = b.verifyEvidence();
+    b.close();
+    if (opts.json) {
+      printJson(checks);
+      return;
+    }
+    const bad = checks.filter(
+      (c) => c.status === "changed" || c.status === "missing",
+    );
+    for (const c of checks) {
+      console.log(`  [${c.status}] ${c.ref}`);
+    }
+    if (bad.length > 0) {
+      console.error(`✗ ${bad.length} evidence file(s) changed or missing.`);
+      process.exitCode = 1;
+    } else {
+      console.log("✓ all content-hashed evidence intact.");
+    }
   });
 
 program

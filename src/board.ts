@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
@@ -20,6 +26,8 @@ import type {
   BoardStatus,
   Decision,
   Evidence,
+  EvidenceCheck,
+  EvidenceStatus,
   FileChange,
   FileChangeKind,
   Handoff,
@@ -1226,6 +1234,10 @@ export class Board {
     note: string | null = null,
     target: string | null = null,
   ): Evidence {
+    // Content-address the evidence when it is a readable local file, so the
+    // referenced content is integrity-protected: a later swap/edit of the file
+    // is detectable via verifyEvidence(). URLs / non-files store sha256 = null.
+    const sha256 = Board.hashFileIfLocal(ref);
     const tx = this.db.transaction((): Evidence => {
       this.ensureAgent(actor);
       const ev: Evidence = {
@@ -1234,19 +1246,62 @@ export class Board {
         ref,
         note,
         target,
+        sha256,
         createdAt: now(),
       };
       this.db
         .prepare(
-          "INSERT INTO evidence (id, agent_id, ref, note, target, created_at) VALUES (@id, @agentId, @ref, @note, @target, @createdAt)",
+          "INSERT INTO evidence (id, agent_id, ref, note, target, sha256, created_at) VALUES (@id, @agentId, @ref, @note, @target, @sha256, @createdAt)",
         )
         .run(ev);
-      this.append(actor, "evidence", `evidence: ${ref}`, "evidence", ev.id, {
-        target,
-      });
+      this.append(
+        actor,
+        "evidence",
+        `evidence: ${ref}${sha256 ? ` (sha256 ${sha256.slice(0, 12)})` : ""}`,
+        "evidence",
+        ev.id,
+        { target, sha256 },
+      );
       return ev;
     });
     return tx.immediate();
+  }
+
+  /** SHA-256 of a local file's content, or null if `ref` is not a readable file. */
+  private static hashFileIfLocal(ref: string): string | null {
+    try {
+      if (!existsSync(ref) || !statSync(ref).isFile()) {
+        return null;
+      }
+      return createHash("sha256").update(readFileSync(ref)).digest("hex");
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Re-check every content-hashed evidence file against its attach-time hash.
+   * `ok` = unchanged, `changed` = content differs (tampered/edited), `missing`
+   * = the file is gone, `unhashed` = a URL / non-file (never hashed).
+   */
+  verifyEvidence(): EvidenceCheck[] {
+    const rows = this.db
+      .prepare("SELECT id, ref, sha256 FROM evidence ORDER BY created_at ASC")
+      .all() as { id: string; ref: string; sha256: string | null }[];
+    return rows.map(({ id, ref, sha256 }) => {
+      let status: EvidenceStatus;
+      if (sha256 === null) {
+        status = "unhashed";
+      } else if (!existsSync(ref) || !statSync(ref).isFile()) {
+        status = "missing";
+      } else {
+        const now256 = createHash("sha256")
+          .update(readFileSync(ref))
+          .digest("hex");
+        status = now256 === sha256 ? "ok" : "changed";
+      }
+      return { id, ref, status };
+    });
   }
 
   fileChanged(
@@ -1979,14 +2034,24 @@ export class Board {
           relatedTasks: JSON.stringify(d.relatedTasks ?? []),
         }).changes;
       }
-      this.append(
-        this.config.agent,
-        "import",
-        `imported bundle: ${counts.attributions} attribution(s), ${counts.reviews} review(s)`,
-        null,
-        null,
-        counts,
-      );
+      // Skip the audit event on a pure no-op re-import (all rows already
+      // present) so re-syncing the same bundle doesn't accrete noise.
+      if (
+        counts.attributions +
+          counts.reviews +
+          counts.sessions +
+          counts.decisions >
+        0
+      ) {
+        this.append(
+          this.config.agent,
+          "import",
+          `imported bundle: ${counts.attributions} attribution(s), ${counts.reviews} review(s)`,
+          null,
+          null,
+          counts,
+        );
+      }
     });
     tx.immediate();
     return counts;

@@ -182,7 +182,19 @@ export interface Evidence {
   note: string | null;
   /** Optional link to what this evidence supports, e.g. "task:auth-mw". */
   target: string | null;
+  /** SHA-256 of the referenced file's content at attach time, if it was a
+   *  readable local file — so later tampering with the file is detectable. */
+  sha256: string | null;
   createdAt: string;
+}
+
+export type EvidenceStatus = "ok" | "changed" | "missing" | "unhashed";
+
+/** Result of re-checking an evidence file against its attach-time hash. */
+export interface EvidenceCheck {
+  id: string;
+  ref: string;
+  status: EvidenceStatus;
 }
 
 export type FileChangeKind = "added" | "modified" | "deleted";

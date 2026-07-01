@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
+## [0.1.4] - 2026-07-01
+
+### Security / integrity
+
+- **Append-only is now enforced at the database layer.** `BEFORE UPDATE` /
+  `BEFORE DELETE` triggers on the `timeline` refuse any modification or deletion
+  of an audit row from any connection — "append-only by convention" is now
+  "append-only by default". A determined attacker with DB access can still drop
+  the triggers, but the hash chain + head anchor then detect the tamper.
+- **Evidence is content-addressed.** Attaching a local file now stores its
+  SHA-256, so a later swap/edit of the file is detectable. New `verifyEvidence()`
+  / `blackboard evidence-verify` report `ok` / `changed` / `missing` / `unhashed`.
+- `import` no longer appends an audit event on a pure no-op re-import.
+
+Verified by a 10-process concurrency stress test (1000 concurrent writes, 0
+lost, 0 duplicate/forked seq, chain intact, one task under 10 racing claims).
+
 ## [0.1.3] - 2026-07-01
 
 ### Changed

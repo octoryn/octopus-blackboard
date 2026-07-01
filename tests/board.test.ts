@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import Database from "better-sqlite3";
-import { openBoard, tempDir } from "./helpers.js";
+import { openBoard, rawTamper, tempDir } from "./helpers.js";
 
 describe("timeline hash chain", () => {
   let dir: ReturnType<typeof tempDir>;
@@ -26,7 +25,7 @@ describe("timeline hash chain", () => {
     b.close();
 
     // Mutate seq 1 directly in SQLite, bypassing the board.
-    const raw = new Database(dbPath);
+    const raw = rawTamper(dbPath);
     raw
       .prepare("UPDATE timeline SET summary = ? WHERE seq = 1")
       .run("something else");
@@ -44,7 +43,7 @@ describe("timeline hash chain", () => {
     b.note("claude", "a");
     const dbPath = b.config.dbPath;
     b.close();
-    const raw = new Database(dbPath);
+    const raw = rawTamper(dbPath);
     raw
       .prepare("UPDATE timeline SET session_id = ? WHERE seq = 1")
       .run("forged-session");

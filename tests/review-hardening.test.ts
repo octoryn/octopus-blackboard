@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import Database from "better-sqlite3";
-import { openBoard, tempDir } from "./helpers.js";
+import { openBoard, rawTamper, tempDir } from "./helpers.js";
 
 describe("redaction covers the source row, not just the timeline (review #integrity-1)", () => {
   let dir: ReturnType<typeof tempDir>;
@@ -87,7 +86,7 @@ describe("verifyChain reports missing anchor (review #integrity-4)", () => {
     const dbPath = b.config.dbPath;
     b.close();
 
-    const raw = new Database(dbPath);
+    const raw = rawTamper(dbPath);
     raw.prepare("DELETE FROM timeline WHERE seq = 2").run();
     raw.prepare("DELETE FROM meta WHERE key IN ('head_seq','head_hash')").run();
     raw.close();

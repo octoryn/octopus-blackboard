@@ -89,6 +89,7 @@ function migrate(db: Database.Database): void {
   ensure("tasks", "risk_level", "TEXT");
   ensure("tasks", "progress", "INTEGER NOT NULL DEFAULT 0");
   ensure("risks", "task_key", "TEXT");
+  ensure("evidence", "sha256", "TEXT");
   // Backfill stable, unique numbers for tasks created before numbering existed,
   // in creation order (rowid is unique, so no two tasks collide).
   db.exec(
@@ -220,6 +221,7 @@ CREATE TABLE IF NOT EXISTS evidence (
   ref        TEXT NOT NULL,
   note       TEXT,
   target     TEXT,
+  sha256     TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -297,6 +299,18 @@ CREATE TABLE IF NOT EXISTS timeline (
   prev_hash  TEXT NOT NULL,
   hash       TEXT NOT NULL
 );
+
+-- Enforce append-only at the database layer, for EVERY connection (not just the
+-- board's code): the timeline can be INSERTed into, never UPDATEd or DELETEd.
+-- This turns "append-only by convention" into "append-only by default" — a
+-- casual sqlite3 edit or a buggy write is refused. A determined attacker with
+-- DB access can still DROP these triggers, but then the hash chain + head anchor
+-- detect the tamper (belt and braces). No legitimate code path updates/deletes
+-- timeline rows (redaction uses an overlay; prune never touches the timeline).
+CREATE TRIGGER IF NOT EXISTS timeline_no_update BEFORE UPDATE ON timeline
+BEGIN SELECT RAISE(ABORT, 'timeline is append-only: rows cannot be modified'); END;
+CREATE TRIGGER IF NOT EXISTS timeline_no_delete BEFORE DELETE ON timeline
+BEGIN SELECT RAISE(ABORT, 'timeline is append-only: rows cannot be deleted'); END;
 
 `;
 

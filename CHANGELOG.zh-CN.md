@@ -5,6 +5,22 @@
 本项目所有重要变更记录于此。格式基于
 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，达到 1.0 后遵循语义化版本。
 
+## [0.1.4] - 2026-07-01
+
+### 安全 / 完整性
+
+- **append-only 现在在数据库层强制。** `timeline` 上的 `BEFORE UPDATE` /
+  `BEFORE DELETE` 触发器拒绝任何连接对审计行的修改或删除——从"靠约定 append-only"
+  变成"默认 append-only"。有数据库写权限的攻击者仍可 DROP 触发器,但随后哈希链 +
+  head 锚点会检测到篡改。
+- **evidence 内容寻址。** 附加本地文件时存储其 SHA-256,因此文件被换/改后可检测。新增
+  `verifyEvidence()` / `blackboard evidence-verify`,报告 `ok` / `changed` /
+  `missing` / `unhashed`。
+- `import` 对纯 no-op 重复导入不再追加审计事件。
+
+经 10 进程并发压测验证(1000 次并发写、0 丢失、0 重复/分叉 seq、链完好、10 个并发认领
+同一 key 只产生 1 个任务)。
+
 ## [0.1.3] - 2026-07-01
 
 ### 变更

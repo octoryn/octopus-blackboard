@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import Database from "better-sqlite3";
-import { openBoard, tempDir } from "./helpers.js";
+import { openBoard, rawTamper, tempDir } from "./helpers.js";
 
 describe("B — CI gate (check)", () => {
   let dir: ReturnType<typeof tempDir>;
@@ -53,7 +52,7 @@ describe("B — CI gate (check)", () => {
     // Tamper via a second connection-independent path: mutate then re-open.
     const dbPath = b.config.dbPath;
     b.close();
-    const raw = new Database(dbPath);
+    const raw = rawTamper(dbPath);
     raw.prepare("UPDATE timeline SET summary = ? WHERE seq = 1").run("forged");
     raw.close();
     const b2 = openBoard(dir.path, { agent: "claude" });
@@ -180,7 +179,7 @@ describe("E — session signing v0", () => {
     b.stopSession();
     const dbPath = b.config.dbPath;
     b.close();
-    const raw = new Database(dbPath);
+    const raw = rawTamper(dbPath);
     raw.prepare("UPDATE timeline SET summary = ? WHERE seq = 2").run("forged");
     raw.close();
 

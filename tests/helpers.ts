@@ -2,8 +2,23 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { Board } from "../src/board.js";
 import { loadConfig, type ConfigOverrides } from "../src/config.js";
+
+/**
+ * Open a raw SQLite connection for TAMPER simulation. The board enforces
+ * append-only on the timeline with triggers; a determined attacker with DB
+ * access can drop them, so tests that verify tamper DETECTION drop the triggers
+ * first (then confirm the hash chain still catches the edit).
+ */
+export function rawTamper(dbPath: string): Database.Database {
+  const raw = new Database(dbPath);
+  raw.exec(
+    "DROP TRIGGER IF EXISTS timeline_no_update; DROP TRIGGER IF EXISTS timeline_no_delete;",
+  );
+  return raw;
+}
 
 /** A fresh temp directory, auto-removed by the returned dispose(). */
 export function tempDir(prefix = "bb-"): { path: string; dispose: () => void } {
