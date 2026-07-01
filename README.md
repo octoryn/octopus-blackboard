@@ -1,4 +1,4 @@
-<img src="docs/octoryn-mark.png" alt="Octoryn" width="72" />
+![Octopus Blackboard](docs/diagrams/banner.png)
 
 # Octopus Blackboard
 
@@ -7,6 +7,8 @@
 > Agents do not need another boss. They need a shared blackboard.
 
 [简体中文](./README.zh-CN.md)
+
+![How it works: agents connect over MCP to a shared blackboard that records and exposes but never orchestrates, producing a conflict-aware kanban, AI attribution, a CI review gate, and a tamper-evident audit trail](docs/diagrams/value-flow.png)
 
 ---
 
@@ -32,6 +34,8 @@ Every agent only needs to be able to **read the board, write the board,
 leave messages, and attach evidence.** That's the whole contract.
 
 ## Why
+
+![Without a shared board, agents work blind — duplicate edits, no attribution, unseen conflicts. With Octopus Blackboard they share memory and produce a conflict-aware kanban, attribution, a review gate, and an audit trail](docs/diagrams/before-after.png)
 
 Enterprises are not primarily afraid that agents aren't smart enough. They are
 afraid that:
@@ -179,6 +183,8 @@ hash-chained `timeline`, so the full accountability history is tamper-evident
 and replayable. `blackboard` and `octoboard` are the same command.
 
 ## Governance & accountability chain
+
+![The accountability chain: agent does work → attribute the commit → export/import → CI gate blocks unreviewed AI → human approves → merge, all recorded on the tamper-evident timeline](docs/diagrams/governance-chain.png)
 
 The point of attribution is to *enforce* something. The chain from work to a
 merge gate:

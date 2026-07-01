@@ -1,6 +1,6 @@
 {
   "name": "octopus-blackboard",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "A shared memory and coordination layer for AI coding agents. Not an orchestrator — a blackboard.",
   "license": "AGPL-3.0-or-later",
   "author": "Octoryn",

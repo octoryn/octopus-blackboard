@@ -5,6 +5,13 @@
 本项目所有重要变更记录于此。格式基于
 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，达到 1.0 后遵循语义化版本。
 
+## [0.1.6] - 2026-07-01
+
+### 文档
+
+- 在 `docs/diagrams/` 新增品牌示意图（SVG 源 + PNG）:README banner、before/after
+  对比图、价值流程图、问责链单线图,并嵌入两份 README。
+
 ## [0.1.5] - 2026-07-01
 
 ### 安全 / 完整性（审核后续）

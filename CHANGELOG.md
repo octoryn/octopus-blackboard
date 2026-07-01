@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
+## [0.1.6] - 2026-07-01
+
+### Documentation
+
+- Added brand diagrams under `docs/diagrams/` (SVG source + PNG): a README
+  banner, a before/after comparison, the value flow, and the accountability
+  chain. Embedded in both READMEs.
+
 ## [0.1.5] - 2026-07-01
 
 ### Security / integrity (audit follow-ups)
