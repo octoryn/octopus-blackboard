@@ -54,6 +54,7 @@ function migrate(db: Database.Database): void {
   ensure("sessions", "git_branch", "TEXT");
   ensure("sessions", "repository", "TEXT");
   ensure("sessions", "public_key", "TEXT");
+  ensure("sessions", "last_heartbeat", "TEXT");
 
   // session linkage on writes
   ensure("timeline", "session_id", "TEXT");
@@ -104,8 +105,16 @@ CREATE TABLE IF NOT EXISTS sessions (
   git_branch        TEXT,
   repository        TEXT,
   public_key        TEXT,
+  last_heartbeat    TEXT,
   started_at        TEXT NOT NULL,
   finished_at       TEXT
+);
+
+CREATE TABLE IF NOT EXISTS redactions (
+  seq        INTEGER PRIMARY KEY,
+  reason     TEXT,
+  actor      TEXT,
+  created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS signatures (

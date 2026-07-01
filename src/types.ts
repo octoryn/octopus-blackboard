@@ -55,6 +55,8 @@ export interface Session {
   repository: string | null;
   /** Ed25519 public key (PEM) for this session's signatures, if signing is on. */
   publicKey: string | null;
+  /** Last liveness heartbeat; used to tell active sessions from stale ones. */
+  lastHeartbeat: string | null;
   startedAt: string;
   finishedAt: string | null;
 }

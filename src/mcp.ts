@@ -331,6 +331,31 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: { file: { type: "string" }, line: { type: "number" } },
         required: ["file", "line"]
       }
+    },
+    {
+      name: "board_heartbeat",
+      description: "Stamp the active session as alive (real-time liveness, so other agents can tell active from stale).",
+      inputSchema: { type: "object", properties: { ...AGENT_PROP } }
+    },
+    {
+      name: "board_prune",
+      description:
+        "Retention: delete messages/evidence/file-change rows created before an ISO time. The audit timeline is never pruned.",
+      inputSchema: {
+        type: "object",
+        properties: { before: { type: "string", description: "ISO timestamp" } },
+        required: ["before"]
+      }
+    },
+    {
+      name: "board_redact",
+      description:
+        "Hide a timeline entry's content at the read layer (the hash chain stays valid — this is not cryptographic erasure).",
+      inputSchema: {
+        type: "object",
+        properties: { seq: { type: "number" }, reason: { type: "string" } },
+        required: ["seq"]
+      }
     }
   ]
 }));
@@ -533,6 +558,25 @@ function handleTool(name: string, args: Record<string, any>, actor: string) {
 
     case "board_report":
       return text(withBoard((b) => b.report()));
+
+    case "board_heartbeat":
+      return text(withBoard((b) => b.heartbeat() ?? "No active session."));
+
+    case "board_prune": {
+      const when = new Date(String(args.before));
+      if (isNaN(when.getTime())) {
+        return text("before must be a valid ISO timestamp.");
+      }
+      return text(withBoard((b) => b.prune(when.toISOString())));
+    }
+
+    case "board_redact": {
+      const seq = intArg(args.seq, 0);
+      if (seq < 1) {
+        return text("seq must be a positive integer.");
+      }
+      return text(withBoard((b) => (b.redact(seq, args.reason ?? null) ? `Redacted #${seq}.` : `No timeline entry #${seq}.`)));
+    }
 
     case "board_blame": {
       const line = intArg(args.line, 0);

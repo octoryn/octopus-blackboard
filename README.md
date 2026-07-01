@@ -227,6 +227,32 @@ A session auto-signs its head on `session stop`. A signature over a head becomes
 even though the signature itself stays cryptographically valid. This is not yet
 a full PKI (no key distribution or revocation).
 
+## Team backend
+
+Boards stay local-first; sync shares the portable attribution records (never a
+board's private hash chain) into a team store — a shared file or Postgres.
+
+```bash
+blackboard sync push --target /shared/team.json          # file (shared drive)
+blackboard sync pull --target postgres://host/blackboard # team database (needs `pg`)
+```
+
+Liveness and compliance:
+
+```bash
+blackboard session heartbeat        # mark your session alive (active vs stale)
+# `blackboard file ...` now warns if another LIVE session is editing the same file
+
+blackboard prune --before 2026-01-01T00:00:00Z   # retention: drop old messages/
+                                                 # evidence/file-changes (timeline kept)
+blackboard redact 42 --reason PII                # hide a timeline entry's content
+```
+
+`prune` never touches the append-only timeline (the audit trail). `redact` hides
+content at the read layer while keeping the hash chain valid — it is not
+cryptographic erasure (the original stays in the DB so the chain still verifies;
+don't store secrets you must be able to destroy).
+
 ## Visibility
 
 ```bash

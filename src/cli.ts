@@ -4,6 +4,7 @@ import { Command } from "commander";
 import { Board } from "./board.js";
 import { loadConfig } from "./config.js";
 import { serve } from "./serve.js";
+import { createSyncTarget } from "./sync.js";
 import * as git from "./git.js";
 import type { RiskSeverity } from "./types.js";
 
@@ -203,6 +204,11 @@ program
         console.warn(`⚠ ${others.length} change(s) by other agents already recorded on task "${opts.task}".`);
       }
     }
+    // Real-time collision: another live session editing the same file right now.
+    const liveEditors = b.activeEditorsOfFile(path, loadConfig(overrides()).sessionId, 120_000).filter((e) => e.agent !== actor());
+    if (liveEditors.length > 0) {
+      console.warn(`⚠ LIVE: ${liveEditors.map((e) => e.agent).join(", ")} also editing ${path} right now.`);
+    }
     b.fileChanged(actor(), path, opts.change, opts.task ?? null);
     b.close();
     console.log(`Recorded ${opts.change}: ${path}`);
@@ -293,6 +299,16 @@ session
     const s = b.stopSession(sid);
     b.close();
     console.log(s ? `Session stopped: ${s.id}` : "No active session.");
+  });
+
+session
+  .command("heartbeat")
+  .description("stamp your active session as alive (for real-time liveness)")
+  .action(() => {
+    const b = board();
+    const s = b.heartbeat();
+    b.close();
+    console.log(s ? `Heartbeat: ${s.id.slice(0, 8)} @ ${s.lastHeartbeat}` : "No active session.");
   });
 
 session
@@ -653,6 +669,78 @@ program
       console.error(err instanceof Error ? err.message : String(err));
       process.exitCode = 1;
     } finally {
+      b.close();
+    }
+  });
+
+program
+  .command("prune")
+  .requiredOption("--before <iso>", "delete messages/evidence/file-changes created before this ISO time")
+  .description("retention: delete old sensitive rows (the audit timeline is never pruned)")
+  .action((opts) => {
+    const when = new Date(opts.before);
+    if (isNaN(when.getTime())) {
+      console.error("--before must be a valid ISO timestamp, e.g. 2026-01-01T00:00:00Z");
+      process.exitCode = 1;
+      return;
+    }
+    const b = board();
+    const c = b.prune(when.toISOString());
+    b.close();
+    console.log(`Pruned ${c.messages} message(s), ${c.evidence} evidence, ${c.filesChanged} file-change(s). Timeline preserved.`);
+  });
+
+program
+  .command("redact")
+  .argument("<seq>", "timeline sequence number to redact")
+  .option("--reason <reason>", "why (shown in the tombstone)")
+  .description("hide a timeline entry's content at the read layer (chain stays valid)")
+  .action((seqArg, opts) => {
+    const seq = parseInt(seqArg, 10);
+    const b = board();
+    if (!Number.isInteger(seq) || seq < 1) {
+      b.close();
+      console.error("seq must be a positive integer.");
+      process.exitCode = 1;
+      return;
+    }
+    const ok = b.redact(seq, opts.reason ?? null);
+    b.close();
+    console.log(ok ? `Redacted #${seq}.` : `No timeline entry #${seq}.`);
+  });
+
+program
+  .command("sync")
+  .argument("<direction>", "push | pull")
+  .option("--target <spec>", "file path or postgres:// URL (or OCTOBOARD_SYNC_TARGET)")
+  .option("--range <range>", "commit range for push (default: all attributed)")
+  .description("sync attribution to/from a team board (file or Postgres)")
+  .action(async (direction, opts) => {
+    const spec = opts.target ?? process.env.OCTOBOARD_SYNC_TARGET;
+    if (!spec) {
+      console.error("No sync target (use --target or set OCTOBOARD_SYNC_TARGET).");
+      process.exitCode = 1;
+      return;
+    }
+    const b = board();
+    const target = createSyncTarget(spec);
+    try {
+      if (direction === "push") {
+        const commits = opts.range ? git.revList(opts.range) : undefined;
+        const res = await target.push(b.exportBundle(commits));
+        console.log(`Pushed: ${res.attributions} attribution(s), ${res.reviews} review(s), ${res.sessions} session(s), ${res.decisions} decision(s).`);
+      } else if (direction === "pull") {
+        const counts = b.importBundle(await target.pull());
+        console.log(`Pulled: ${counts.attributions} attribution(s), ${counts.reviews} review(s), ${counts.sessions} session(s), ${counts.decisions} decision(s).`);
+      } else {
+        console.error("direction must be 'push' or 'pull'.");
+        process.exitCode = 1;
+      }
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exitCode = 1;
+    } finally {
+      await target.close();
       b.close();
     }
   });

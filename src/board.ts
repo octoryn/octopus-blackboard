@@ -273,7 +273,7 @@ export class Board {
     const rows = this.db
       .prepare("SELECT * FROM timeline ORDER BY seq DESC LIMIT ?")
       .all(limit) as any[];
-    return rows.map(rowToTimeline).reverse();
+    return this.applyRedactions(rows.map(rowToTimeline).reverse());
   }
 
   /** The current head sequence number (0 if the board is empty). */
@@ -284,9 +284,11 @@ export class Board {
   /** Timeline events after `afterSeq`, oldest first — the polling primitive
    *  behind `watch`/`subscribe`. Passive: callers poll; the board never pushes. */
   since(afterSeq: number): TimelineEvent[] {
-    return (
-      this.db.prepare("SELECT * FROM timeline WHERE seq > ? ORDER BY seq ASC").all(afterSeq) as any[]
-    ).map(rowToTimeline);
+    return this.applyRedactions(
+      (this.db.prepare("SELECT * FROM timeline WHERE seq > ? ORDER BY seq ASC").all(afterSeq) as any[]).map(
+        rowToTimeline
+      )
+    );
   }
 
   /**
@@ -403,13 +405,14 @@ export class Board {
         gitBranch: git.currentBranch() ?? null,
         repository: git.remoteUrl() ?? git.repoRoot() ?? null,
         publicKey: keypair.publicKeyPem,
+        lastHeartbeat: at,
         startedAt: at,
         finishedAt: null
       };
       this.db
         .prepare(
-          `INSERT INTO sessions (id, agent_name, label, machine, working_directory, git_branch, repository, public_key, started_at, finished_at)
-           VALUES (@id, @agentName, @label, @machine, @workingDirectory, @gitBranch, @repository, @publicKey, @startedAt, @finishedAt)`
+          `INSERT INTO sessions (id, agent_name, label, machine, working_directory, git_branch, repository, public_key, last_heartbeat, started_at, finished_at)
+           VALUES (@id, @agentName, @label, @machine, @workingDirectory, @gitBranch, @repository, @publicKey, @lastHeartbeat, @startedAt, @finishedAt)`
         )
         .run(session);
       // Stamp subsequent events (including this one) with the new session.
@@ -572,11 +575,13 @@ export class Board {
 
   /** All timeline events belonging to a session, oldest first. */
   sessionTimeline(sessionId: string): TimelineEvent[] {
-    return (
-      this.db
-        .prepare("SELECT * FROM timeline WHERE session_id = ? ORDER BY seq ASC")
-        .all(sessionId) as any[]
-    ).map(rowToTimeline);
+    return this.applyRedactions(
+      (
+        this.db
+          .prepare("SELECT * FROM timeline WHERE session_id = ? ORDER BY seq ASC")
+          .all(sessionId) as any[]
+      ).map(rowToTimeline)
+    );
   }
 
   listAgents(): Agent[] {
@@ -1344,11 +1349,25 @@ export class Board {
     const counts = { attributions: 0, reviews: 0, sessions: 0, decisions: 0 };
     const tx = this.db.transaction(() => {
       const insSession = this.db.prepare(
-        `INSERT OR IGNORE INTO sessions (id, agent_name, label, machine, working_directory, git_branch, repository, public_key, started_at, finished_at)
-         VALUES (@id, @agentName, @label, @machine, @workingDirectory, @gitBranch, @repository, @publicKey, @startedAt, @finishedAt)`
+        `INSERT OR IGNORE INTO sessions (id, agent_name, label, machine, working_directory, git_branch, repository, public_key, last_heartbeat, started_at, finished_at)
+         VALUES (@id, @agentName, @label, @machine, @workingDirectory, @gitBranch, @repository, @publicKey, @lastHeartbeat, @startedAt, @finishedAt)`
       );
       for (const s of bundle.sessions ?? []) {
-        counts.sessions += insSession.run(s).changes;
+        // Normalize: an external bundle may predate newer session columns, so
+        // fill any missing field with null before binding.
+        counts.sessions += insSession.run({
+          id: s.id,
+          agentName: s.agentName,
+          label: s.label ?? null,
+          machine: s.machine ?? null,
+          workingDirectory: s.workingDirectory ?? null,
+          gitBranch: s.gitBranch ?? null,
+          repository: s.repository ?? null,
+          publicKey: s.publicKey ?? null,
+          lastHeartbeat: s.lastHeartbeat ?? null,
+          startedAt: s.startedAt,
+          finishedAt: s.finishedAt ?? null
+        }).changes;
       }
       const insAttr = this.db.prepare(
         `INSERT OR IGNORE INTO attributions (id, commit_sha, file, hunk, actor_type, actor, provider, model, cli, session_id, created_at)
@@ -1531,6 +1550,117 @@ export class Board {
     };
   }
 
+  // --- liveness (heartbeat) --------------------------------------------------
+
+  /** Stamp a session's liveness. Cheap; not recorded on the timeline. */
+  heartbeat(sessionId?: string): Session | undefined {
+    const sid = sessionId ?? this.activeSession;
+    if (!sid) {
+      return undefined;
+    }
+    this.db.prepare("UPDATE sessions SET last_heartbeat = ? WHERE id = ?").run(now(), sid);
+    return this.getSession(sid);
+  }
+
+  /** Open sessions whose heartbeat is within `withinMs` — genuinely active. */
+  activeSessions(withinMs = 120_000): Session[] {
+    const cutoff = new Date(Date.now() - withinMs).toISOString();
+    return (
+      this.db
+        .prepare("SELECT * FROM sessions WHERE finished_at IS NULL AND last_heartbeat >= ? ORDER BY last_heartbeat DESC")
+        .all(cutoff) as any[]
+    ).map(rowToSession);
+  }
+
+  /**
+   * Other active sessions that recorded a change to the same file — real-time
+   * collision awareness (two live agents editing one file), a step beyond the
+   * same-task conflict surfaced by `fileChanged`.
+   */
+  activeEditorsOfFile(file: string, excludeSession: string | null, withinMs = 120_000): { sessionId: string; agent: string }[] {
+    const active = new Set(this.activeSessions(withinMs).map((s) => s.id));
+    const rows = this.db
+      .prepare("SELECT DISTINCT session_id, agent_id FROM files_changed WHERE path = ? AND session_id IS NOT NULL")
+      .all(file) as any[];
+    return rows
+      .filter((r) => active.has(r.session_id) && r.session_id !== excludeSession)
+      .map((r) => ({ sessionId: r.session_id, agent: r.agent_id }));
+  }
+
+  // --- retention & redaction -------------------------------------------------
+
+  /**
+   * Delete potentially-sensitive, bulky rows (messages, evidence, file-change
+   * records) created before a horizon. The append-only timeline is NEVER pruned
+   * — it is the audit trail — so pruning is recorded as one `prune` event.
+   */
+  prune(beforeIso: string): { messages: number; evidence: number; filesChanged: number } {
+    const tx = this.db.transaction(() => {
+      const del = (table: string): number =>
+        this.db.prepare(`DELETE FROM ${table} WHERE created_at < ?`).run(beforeIso).changes;
+      const counts = {
+        messages: del("messages"),
+        evidence: del("evidence"),
+        filesChanged: del("files_changed")
+      };
+      this.append(
+        this.config.agent,
+        "prune",
+        `pruned rows before ${beforeIso}: ${counts.messages} message(s), ${counts.evidence} evidence, ${counts.filesChanged} file-change(s)`,
+        null,
+        null,
+        counts
+      );
+      return counts;
+    });
+    return tx.immediate();
+  }
+
+  /**
+   * Redact a timeline entry's displayed content. The stored row is left intact
+   * so the hash chain still verifies (integrity is preserved); reads via
+   * `timeline`/`since`/`sessionTimeline` show a tombstone instead. The redaction
+   * act is itself audited. NOTE: this hides content at the read layer — it is
+   * not cryptographic erasure (the original remains in the DB to keep the
+   * chain valid). Don't store secrets you must be able to destroy.
+   */
+  redact(seq: number, reason: string | null = null): boolean {
+    const exists = this.db.prepare("SELECT 1 FROM timeline WHERE seq = ?").get(seq);
+    if (!exists) {
+      return false;
+    }
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare("INSERT OR REPLACE INTO redactions (seq, reason, actor, created_at) VALUES (?, ?, ?, ?)")
+        .run(seq, reason, this.config.agent, now());
+      this.append(this.config.agent, "redaction", `redacted #${seq}${reason ? `: ${reason}` : ""}`, "timeline", String(seq), { seq });
+    });
+    tx.immediate();
+    return true;
+  }
+
+  /** Seqs that have been redacted, with their reason. */
+  private redactionMap(): Map<number, string | null> {
+    const rows = this.db.prepare("SELECT seq, reason FROM redactions").all() as {
+      seq: number;
+      reason: string | null;
+    }[];
+    return new Map(rows.map((r) => [r.seq, r.reason]));
+  }
+
+  /** Apply the redaction overlay to a set of events (content → tombstone). */
+  private applyRedactions(events: TimelineEvent[]): TimelineEvent[] {
+    const redacted = this.redactionMap();
+    if (redacted.size === 0) {
+      return events;
+    }
+    return events.map((e) =>
+      redacted.has(e.seq)
+        ? { ...e, summary: `[redacted${redacted.get(e.seq) ? `: ${redacted.get(e.seq)}` : ""}]`, payload: null }
+        : e
+    );
+  }
+
   // --- read ------------------------------------------------------------------
 
   status(forAgent?: string): BoardStatus {
@@ -1576,6 +1706,7 @@ function rowToSession(r: any): Session {
     gitBranch: r.git_branch ?? null,
     repository: r.repository ?? null,
     publicKey: r.public_key ?? null,
+    lastHeartbeat: r.last_heartbeat ?? null,
     startedAt: r.started_at,
     finishedAt: r.finished_at ?? null
   };
