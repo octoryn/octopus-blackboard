@@ -103,11 +103,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "board_inbox",
-      description: "Read messages addressed to you or broadcast to the board.",
+      description: "Read what's waiting for you: messages (addressed or broadcast) and handoffs left for you.",
       inputSchema: {
         type: "object",
         properties: { includeRead: { type: "boolean", default: false }, ...AGENT_PROP }
       }
+    },
+    {
+      name: "board_handoffs",
+      description: "Handoffs left FOR you — the work another agent passed to you, with context and open questions.",
+      inputSchema: { type: "object", properties: { ...AGENT_PROP } }
     },
     {
       name: "board_decision",
@@ -421,7 +426,12 @@ function handleTool(name: string, args: Record<string, any>, actor: string) {
     }
 
     case "board_inbox":
-      return text(withBoard((b) => b.inbox(actor, Boolean(args.includeRead))));
+      return text(
+        withBoard((b) => ({ messages: b.inbox(actor, Boolean(args.includeRead)), handoffs: b.handoffsFor(actor) }))
+      );
+
+    case "board_handoffs":
+      return text(withBoard((b) => b.handoffsFor(actor)));
 
     case "board_decision":
       return text(

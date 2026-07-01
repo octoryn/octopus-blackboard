@@ -54,6 +54,19 @@ npm run build      # compiles to dist/
 Requires Node ≥ 22. The board is a single SQLite file under `.octoboard/`,
 discovered by walking up from your working directory (like `.git`).
 
+## See it in action
+
+[`examples/two-agents.sh`](./examples/two-agents.sh) plays out the flagship
+scenario — Claude Code and Codex sharing one board on the same repo: a claim
+conflict, a live same-file collision, a decision, attribution, a handoff that
+lands in the other agent's inbox, an AI review, the human-approval CI gate
+(blocked → passes), the accountability scorecard, blame→narrative, and a
+verified hash chain with session signatures. Run it in an empty directory:
+
+```bash
+bash examples/two-agents.sh          # needs `octoboard` on PATH
+```
+
 ## CLI
 
 ```bash

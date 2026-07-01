@@ -144,18 +144,48 @@ program
 program
   .command("inbox")
   .option("--all", "include already-read messages")
-  .description("show messages addressed to you (or broadcast)")
+  .description("show what's waiting for you: messages and handoffs")
   .action((opts) => {
     const b = board();
-    const messages = b.inbox(actor(), opts.all);
+    const me = actor();
+    const messages = b.inbox(me, opts.all);
+    const handoffs = b.handoffsFor(me);
     b.close();
-    if (messages.length === 0) {
+    if (messages.length === 0 && handoffs.length === 0) {
       console.log("Inbox empty.");
       return;
     }
     for (const m of messages) {
       const dest = m.toAgent ? "" : " (broadcast)";
       console.log(`• ${m.fromAgent}${dest}: ${m.body}`);
+    }
+    for (const h of handoffs) {
+      const q = h.openQuestions.length > 0 ? `  (open: ${h.openQuestions.join("; ")})` : "";
+      console.log(`⇢ handoff from ${h.fromAgent}: ${h.summary}${q}`);
+    }
+  });
+
+program
+  .command("handoffs")
+  .description("show handoffs left for you (what was passed to you)")
+  .option("--json", "output raw JSON")
+  .action((opts) => {
+    const b = board();
+    const handoffs = b.handoffsFor(actor());
+    b.close();
+    if (opts.json) {
+      printJson(handoffs);
+      return;
+    }
+    if (handoffs.length === 0) {
+      console.log("No handoffs for you.");
+      return;
+    }
+    for (const h of handoffs) {
+      console.log(`⇢ from ${h.fromAgent}${h.taskKey ? ` [${h.taskKey}]` : ""}: ${h.summary}`);
+      if (h.context) console.log(`    context: ${h.context}`);
+      if (h.relatedFiles.length) console.log(`    files: ${h.relatedFiles.join(", ")}`);
+      if (h.openQuestions.length) console.log(`    open questions: ${h.openQuestions.join("; ")}`);
     }
   });
 

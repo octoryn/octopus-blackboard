@@ -1133,6 +1133,18 @@ export class Board {
     ).map(rowToAttribution);
   }
 
+  /**
+   * Attributions on a commit that concern a specific file — the rows whose
+   * `file` matches (or is null, i.e. whole-commit). Falls back to all of the
+   * commit's attributions if none name the file. Used by `blame`, so tracing a
+   * line doesn't surface attributions for the commit's other files.
+   */
+  private attributionsForCommitFile(commitSha: string, file: string): Attribution[] {
+    const all = this.attributionsForCommit(commitSha);
+    const scoped = all.filter((a) => a.file === file || a.file === null);
+    return scoped.length > 0 ? scoped : all;
+  }
+
   // --- reviews ---------------------------------------------------------------
 
   /** Record who reviewed a commit and the outcome. */
@@ -1183,6 +1195,15 @@ export class Board {
         .prepare("SELECT * FROM reviews WHERE commit_sha = ? ORDER BY created_at ASC")
         .all(commitSha) as any[]
     ).map(rowToReview);
+  }
+
+  /** Handoffs left FOR an agent — "what was passed to me", newest first. */
+  handoffsFor(toAgent: string): Handoff[] {
+    return (
+      this.db
+        .prepare("SELECT * FROM handoffs WHERE to_agent = ? ORDER BY created_at DESC")
+        .all(toAgent) as any[]
+    ).map(rowToHandoff);
   }
 
   // --- queries ---------------------------------------------------------------
@@ -1502,7 +1523,7 @@ export class Board {
     if (!b) {
       return undefined;
     }
-    return { sha: b.sha, gitAuthor: b.author, attributions: this.attributionsForCommit(b.sha) };
+    return { sha: b.sha, gitAuthor: b.author, attributions: this.attributionsForCommitFile(b.sha, file) };
   }
 
   /**
@@ -1529,7 +1550,7 @@ export class Board {
     if (!b) {
       return undefined;
     }
-    const attributions = this.attributionsForCommit(b.sha);
+    const attributions = this.attributionsForCommitFile(b.sha, file);
     const sessionId = attributions.map((a) => a.sessionId).find((s): s is string => s !== null) ?? null;
     const session = sessionId ? (this.getSession(sessionId) ?? null) : null;
     const sessionTimeline = sessionId ? this.sessionTimeline(sessionId) : [];
