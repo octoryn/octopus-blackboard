@@ -265,6 +265,11 @@ hash 锚定到外部(一个 commit、一份日志、另一台机器)——当 `v
 实时进度。**"通知 agent" 是被动的:** 派发任务 = 在该 agent 的收件箱里放一条"请查看
 任务 #N";agent 读到后自己决定是否开工——板子从不启动任何人。
 
+![blackboard serve 的只读实时看板](docs/kanban.png)
+
+*`blackboard serve` 的实时看板——只读、自动刷新。每张卡显示 任务号、进度条、负责人、
+活跃 agent 数（⚡）、project、按风险着色的边框。*
+
 ```bash
 blackboard task add auth-mw --title "Refactor auth middleware" \
   --project octopus-api --impact "src/auth.ts, src/db.ts" --risk high

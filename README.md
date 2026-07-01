@@ -303,6 +303,12 @@ blast radius, risk, and live progress. **"Notifying an agent" is passive:**
 assigning a task drops a "please look at task #N" message in that agent's inbox;
 the agent reads it and decides to act — the board never launches anyone.
 
+![The read-only blackboard serve dashboard, a live kanban of tasks](docs/kanban.png)
+
+*The live `blackboard serve` dashboard — read-only, auto-refreshing. Each card
+shows the task number, progress bar, assignees, active-agent count (⚡), project,
+and a risk-coloured border.*
+
 ```bash
 blackboard task add auth-mw --title "Refactor auth middleware" \
   --project octopus-api --impact "src/auth.ts, src/db.ts" --risk high
