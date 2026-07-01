@@ -227,6 +227,30 @@ A session auto-signs its head on `session stop`. A signature over a head becomes
 even though the signature itself stays cryptographically valid. This is not yet
 a full PKI (no key distribution or revocation).
 
+## Ingesting CLI transcripts
+
+Populate the board from a CLI's session transcript instead of calling the API
+by hand — file edits, decisions, and notes flow onto the active session:
+
+```bash
+blackboard ingest ~/.claude/transcript.jsonl --format claude-code
+blackboard ingest session.jsonl --format codex        # also: gemini, grok
+blackboard ingest events.json    --format generic --dry-run
+```
+
+`claude-code`/`codex`/`gemini`/`grok` use a conservative tool-use JSONL
+heuristic (it finds file edits from `file_path`/`notebook_path` and
+patch/write tool calls). `generic` reads a normalized schema — the stable
+integration path for **any** CLI:
+
+```json
+{ "events": [
+  { "type": "file", "path": "src/auth.ts", "change": "modified" },
+  { "type": "decision", "title": "use ed25519", "rationale": "small keys" },
+  { "type": "note", "text": "left policy edge cases for review" }
+] }
+```
+
 ## Team backend
 
 Boards stay local-first; sync shares the portable attribution records (never a

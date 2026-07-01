@@ -5,6 +5,7 @@ import { Board } from "./board.js";
 import { loadConfig } from "./config.js";
 import { serve } from "./serve.js";
 import { createSyncTarget } from "./sync.js";
+import { ADAPTERS, getAdapter } from "./adapters.js";
 import * as git from "./git.js";
 import type { RiskSeverity } from "./types.js";
 
@@ -671,6 +672,37 @@ program
     } finally {
       b.close();
     }
+  });
+
+program
+  .command("ingest")
+  .argument("<file>", "transcript file to ingest")
+  .option("--format <format>", `adapter: ${ADAPTERS.join(" | ")}`, "generic")
+  .option("--dry-run", "parse and print events without recording them")
+  .description("ingest a CLI transcript into the active session (file edits, decisions, notes)")
+  .action((file, opts) => {
+    const adapter = getAdapter(opts.format);
+    if (!adapter) {
+      console.error(`Unknown format '${opts.format}'. Available: ${ADAPTERS.join(", ")}`);
+      process.exitCode = 1;
+      return;
+    }
+    let events;
+    try {
+      events = adapter.parse(readFileSync(file, "utf8"));
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exitCode = 1;
+      return;
+    }
+    if (opts.dryRun) {
+      printJson(events);
+      return;
+    }
+    const b = board();
+    const counts = b.ingest(events);
+    b.close();
+    console.log(`Ingested ${counts.files} file(s), ${counts.decisions} decision(s), ${counts.notes} note(s) via ${adapter.name}.`);
   });
 
 program

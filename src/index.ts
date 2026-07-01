@@ -16,6 +16,8 @@ export type {
 export { serve } from "./serve.js";
 export { createSyncTarget, FileSyncTarget, PostgresSyncTarget } from "./sync.js";
 export type { SyncTarget, SyncCounts } from "./sync.js";
+export { getAdapter, genericAdapter, ADAPTERS } from "./adapters.js";
+export type { Adapter, IngestEvent } from "./adapters.js";
 export { loadConfig, resolveBoardDir, findBoardDir } from "./config.js";
 export type { BoardConfig, ConfigOverrides } from "./config.js";
 export * from "./types.js";

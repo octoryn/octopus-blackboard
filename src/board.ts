@@ -8,6 +8,7 @@ import { loadConfig, type AgentIdentity, type BoardConfig, type ConfigOverrides 
 import { clearCurrentSession, setCurrentSession } from "./current.js";
 import * as git from "./git.js";
 import { generateSessionKeypair, signHash, verifyHash } from "./signing.js";
+import type { IngestEvent } from "./adapters.js";
 import type {
   Agent,
   ActorType,
@@ -1659,6 +1660,42 @@ export class Board {
         ? { ...e, summary: `[redacted${redacted.get(e.seq) ? `: ${redacted.get(e.seq)}` : ""}]`, payload: null }
         : e
     );
+  }
+
+  // --- ingestion -------------------------------------------------------------
+
+  /**
+   * Record a batch of normalized ingest events (from a transcript adapter)
+   * under the acting agent and active session, then append one `ingest`
+   * summary event. Each file/decision/note is attributed like any other write.
+   */
+  ingest(events: IngestEvent[]): { files: number; decisions: number; notes: number } {
+    const counts = { files: 0, decisions: 0, notes: 0 };
+    for (const e of events) {
+      if (e.type === "file") {
+        this.fileChanged(this.config.agent, e.path, e.change);
+        counts.files += 1;
+      } else if (e.type === "decision") {
+        this.decision(this.config.agent, e.title, { rationale: e.rationale ?? null });
+        counts.decisions += 1;
+      } else if (e.type === "note") {
+        this.note(this.config.agent, e.text);
+        counts.notes += 1;
+      }
+    }
+    this.db
+      .transaction(() =>
+        this.append(
+          this.config.agent,
+          "ingest",
+          `ingested ${counts.files} file(s), ${counts.decisions} decision(s), ${counts.notes} note(s)`,
+          null,
+          null,
+          counts
+        )
+      )
+      .immediate();
+    return counts;
   }
 
   // --- read ------------------------------------------------------------------

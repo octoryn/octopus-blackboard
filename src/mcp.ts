@@ -4,6 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { Board } from "./board.js";
 import { loadConfig } from "./config.js";
+import { getAdapter, ADAPTERS } from "./adapters.js";
 import * as git from "./git.js";
 import type { RiskSeverity, FileChangeKind } from "./types.js";
 
@@ -356,6 +357,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: { seq: { type: "number" }, reason: { type: "string" } },
         required: ["seq"]
       }
+    },
+    {
+      name: "board_ingest",
+      description:
+        "Ingest a CLI transcript's content into the active session (file edits, decisions, notes). Format is one of: " +
+        ADAPTERS.join(", ") + ". Use 'generic' with our normalized event schema for any CLI.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          content: { type: "string", description: "raw transcript content" },
+          format: { type: "string", enum: ADAPTERS, default: "generic" }
+        },
+        required: ["content"]
+      }
     }
   ]
 }));
@@ -576,6 +591,15 @@ function handleTool(name: string, args: Record<string, any>, actor: string) {
         return text("seq must be a positive integer.");
       }
       return text(withBoard((b) => (b.redact(seq, args.reason ?? null) ? `Redacted #${seq}.` : `No timeline entry #${seq}.`)));
+    }
+
+    case "board_ingest": {
+      const adapter = getAdapter(String(args.format ?? "generic"));
+      if (!adapter) {
+        return text(`Unknown format. Available: ${ADAPTERS.join(", ")}`);
+      }
+      const events = adapter.parse(String(args.content ?? ""));
+      return text(withBoard((b) => b.ingest(events)));
     }
 
     case "board_blame": {
