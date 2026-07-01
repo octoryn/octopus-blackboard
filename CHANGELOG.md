@@ -6,6 +6,35 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
+## [0.1.5] - 2026-07-01
+
+### Security / integrity (audit follow-ups)
+
+- **External anchoring** closes the truncation gap. `blackboard anchor`
+  records the current head (`seq:hash`) to a file or a git note; `blackboard
+  verify --against <anchor>` proves the anchored history still exists and is
+  unaltered (`ok` / `truncated` / `altered`) — so even an attacker who drops
+  the append-only triggers and truncates the tail is caught. New
+  `Board.head()` / `verifyAnchor()`.
+- **Signed bundles.** `export` now signs the bundle with the active session's
+  key; `import` verifies it and reports `signature ✓ / INVALID / unsigned`.
+  `import --require-signed` refuses unsigned or tampered bundles. Gives sync
+  origin authenticity, not just id-dedup. New `Board.verifyBundle()`.
+- **Redaction is now true erasure for messages.** Message bodies are no longer
+  duplicated into the hashed, append-only timeline (the summary is metadata-
+  only); the body lives solely in `messages.body`, which `redact` blanks — so
+  redacting a message removes its content from every storage location.
+  Decision rationale likewise no longer goes into the timeline payload.
+- **Consistent read snapshots.** `status`, `report`, and `listTaskCards` now
+  run inside a single SQLite read snapshot, so a concurrent commit can't yield
+  a view that mixes pre- and post-write state.
+
+### Notes
+
+- Agent *names* are handles, not authenticated identities; cryptographic
+  identity comes from session signing (`sign` / `verify`, bundle signatures).
+  Don't trust the `agent` name for authorization.
+
 ## [0.1.4] - 2026-07-01
 
 ### Security / integrity

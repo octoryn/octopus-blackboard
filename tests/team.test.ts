@@ -98,26 +98,33 @@ describe("retention & redaction", () => {
   beforeEach(() => (dir = tempDir()));
   afterEach(() => dir.dispose());
 
-  it("redaction hides content at the read layer but keeps the chain valid", () => {
+  it("redacting a message truly erases its body from ALL storage, chain still valid", () => {
     const b = openBoard(dir.path, { agent: "claude" });
     b.message("claude", null, "sensitive: hunter2");
     const seq = b.timeline().find((e) => e.kind === "message")!.seq;
     b.redact(seq, "PII");
 
-    const shown = b.timeline().find((e) => e.seq === seq)!;
-    expect(shown.summary).toContain("[redacted");
-    expect(shown.summary).not.toContain("hunter2");
-    // Chain still verifies: the stored row is untouched, only the read overlay changed.
+    // Read-layer overlay is blanked, chain still verifies.
+    expect(b.timeline().find((e) => e.seq === seq)!.summary).toContain(
+      "[redacted",
+    );
     expect(b.verifyChain().ok).toBe(true);
 
-    // The original is still in the raw row (integrity, not erasure).
-    const raw = b.config.dbPath;
+    // The message body was never written into the hashed timeline (metadata-only
+    // summary), and redact blanked messages.body — so the secret is in NO raw
+    // storage location. This is true erasure, not just a read overlay.
+    const dbPath = b.config.dbPath;
     b.close();
-    const db = new Database(raw);
-    const row = db
-      .prepare("SELECT summary FROM timeline WHERE seq = ?")
-      .get(seq) as { summary: string };
-    expect(row.summary).toContain("hunter2");
+    const db = new Database(dbPath);
+    const tl = db
+      .prepare("SELECT summary, payload FROM timeline WHERE seq = ?")
+      .get(seq) as { summary: string; payload: string | null };
+    expect(tl.summary).not.toContain("hunter2");
+    expect(tl.payload ?? "").not.toContain("hunter2");
+    const msgs = db.prepare("SELECT body FROM messages").all() as {
+      body: string;
+    }[];
+    expect(msgs.every((m) => !m.body.includes("hunter2"))).toBe(true);
     db.close();
   });
 

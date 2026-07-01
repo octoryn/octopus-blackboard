@@ -117,6 +117,12 @@ export interface AttributionBundle {
   reviews: Review[];
   sessions: Session[];
   decisions: Decision[];
+  /** Ed25519 signature (base64) over the bundle's records, if signed on export. */
+  signature?: string | null;
+  /** PEM public key that produced `signature`. */
+  signedBy?: string | null;
+  /** Session id that signed the bundle. */
+  signedSession?: string | null;
 }
 
 /** Aggregate scorecard for a board — the `report` view. */
@@ -271,6 +277,44 @@ export class Board {
       )
       .run({ seq: String(event.seq), hash: event.hash });
     return event;
+  }
+
+  /** The current timeline head (seq + hash). Record this OUTSIDE the DB — in a
+   *  commit, a log, a second machine — to anchor against tail truncation. */
+  head(): { seq: number; hash: string } {
+    return this.headHash();
+  }
+
+  /**
+   * Check the chain against an anchor recorded earlier (e.g. committed to git).
+   * `ok` = the anchored row still exists with that hash and history through it
+   * is intact; `truncated` = rows at/below the anchor were deleted; `altered` =
+   * history at/below the anchor was edited. This is what closes the "attacker
+   * drops the trigger and truncates" gap — an external anchor makes truncation
+   * provable.
+   */
+  verifyAnchor(
+    seq: number,
+    hash: string,
+  ): { status: "ok" | "truncated" | "altered"; headSeq: number } {
+    const chain = this.verifyChain();
+    const headSeq = this.headHash().seq;
+    if (headSeq < seq) {
+      return { status: "truncated", headSeq };
+    }
+    const row = this.db
+      .prepare("SELECT hash FROM timeline WHERE seq = ?")
+      .get(seq) as { hash: string } | undefined;
+    if (!row) {
+      return { status: "truncated", headSeq };
+    }
+    if (row.hash !== hash) {
+      return { status: "altered", headSeq };
+    }
+    if (!chain.ok && chain.brokenAtSeq !== null && chain.brokenAtSeq <= seq) {
+      return { status: "altered", headSeq };
+    }
+    return { status: "ok", headSeq };
   }
 
   private headAnchor(): { seq: number; hash: string } | null {
@@ -1104,9 +1148,11 @@ export class Board {
 
   /** Every task as a kanban card, newest-updated first. */
   listTaskCards(): TaskCard[] {
-    return this.listTasks()
-      .map((t) => this.taskCard(t.key))
-      .filter((c): c is TaskCard => c !== undefined);
+    return this.readSnapshot(() =>
+      this.listTasks()
+        .map((t) => this.taskCard(t.key))
+        .filter((c): c is TaskCard => c !== undefined),
+    );
   }
 
   /** Leave a message for another agent, or broadcast (to = null). */
@@ -1130,15 +1176,14 @@ export class Board {
           "INSERT INTO messages (id, from_agent, to_agent, body, created_at, read_at) VALUES (@id, @fromAgent, @toAgent, @body, @createdAt, @readAt)",
         )
         .run(msg);
+      // Metadata-only summary: the message BODY lives only in messages.body
+      // (which redact() blanks), never in the hashed, append-only timeline — so
+      // redacting a message truly erases its content from all storage. The
+      // timeline still records who messaged whom, and when.
       const dest = to ? `→ ${to}` : "(broadcast)";
-      this.append(
-        actor,
-        "message",
-        `message ${dest}: ${body}`,
-        "messages",
-        msg.id,
-        { to },
-      );
+      this.append(actor, "message", `message ${dest}`, "messages", msg.id, {
+        to,
+      });
       return msg;
     });
     return tx.immediate();
@@ -1198,8 +1243,9 @@ export class Board {
           relatedCommits: JSON.stringify(dec.relatedCommits),
           relatedTasks: JSON.stringify(dec.relatedTasks),
         });
+      // The free-text rationale lives only in decisions.rationale (redactable);
+      // the timeline keeps the (short) title + related commits, not the rationale.
       this.append(actor, "decision", `decided: ${title}`, "decisions", dec.id, {
-        rationale: dec.rationale,
         relatedCommits: dec.relatedCommits,
       });
       return dec;
@@ -1960,14 +2006,55 @@ export class Board {
     )
       .map(rowToDecision)
       .filter((d) => d.relatedCommits.some((c) => scope.has(c)));
-    return {
+    const bundle: AttributionBundle = {
       version: BUNDLE_VERSION,
       exportedAt: now(),
       attributions,
       reviews,
       sessions,
       decisions,
+      signature: null,
+      signedBy: null,
+      signedSession: null,
     };
+    // Sign the bundle with the active session's key so the importer can verify
+    // it came from a holder of that key (origin authenticity), and that it was
+    // not altered in transit (integrity).
+    const sid = this.activeSession;
+    const priv = sid ? this.loadSessionKey(sid) : undefined;
+    const session = sid ? this.getSession(sid) : undefined;
+    if (priv && session?.publicKey) {
+      bundle.signature = signHash(priv, Board.bundleDigest(bundle));
+      bundle.signedBy = session.publicKey;
+      bundle.signedSession = sid;
+    }
+    return bundle;
+  }
+
+  /** Canonical SHA-256 over a bundle's records (excludes the signature fields). */
+  private static bundleDigest(bundle: AttributionBundle): string {
+    const sortById = <T extends { id: string }>(rows: T[]): T[] =>
+      [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const canonical = JSON.stringify({
+      version: bundle.version,
+      attributions: sortById(bundle.attributions),
+      reviews: sortById(bundle.reviews),
+      sessions: sortById(bundle.sessions),
+      decisions: sortById(bundle.decisions),
+    });
+    return createHash("sha256").update(canonical).digest("hex");
+  }
+
+  /** Verify a bundle's signature, if any: true/false, or null when unsigned. */
+  static verifyBundle(bundle: AttributionBundle): boolean | null {
+    if (!bundle.signature || !bundle.signedBy) {
+      return null;
+    }
+    return verifyHash(
+      bundle.signedBy,
+      Board.bundleDigest(bundle),
+      bundle.signature,
+    );
   }
 
   /**
@@ -1975,15 +2062,28 @@ export class Board {
    * are left untouched, so re-importing is safe. One `import` event is appended
    * to the local timeline; the imported rows keep their original ids/times.
    */
-  importBundle(bundle: AttributionBundle): {
+  importBundle(
+    bundle: AttributionBundle,
+    opts: { requireSigned?: boolean } = {},
+  ): {
     attributions: number;
     reviews: number;
     sessions: number;
     decisions: number;
+    verified: boolean | null;
   } {
     if (!bundle || bundle.version !== BUNDLE_VERSION) {
       throw new Error(
         `unsupported bundle version: ${bundle?.version ?? "(none)"}`,
+      );
+    }
+    // Authenticity/integrity: null = unsigned, true = valid, false = tampered.
+    const verified = Board.verifyBundle(bundle);
+    if (opts.requireSigned && verified !== true) {
+      throw new Error(
+        verified === false
+          ? "bundle signature is INVALID (tampered or wrong key)"
+          : "bundle is unsigned and --require-signed was set",
       );
     }
     const counts = { attributions: 0, reviews: 0, sessions: 0, decisions: 0 };
@@ -2043,18 +2143,24 @@ export class Board {
           counts.decisions >
         0
       ) {
+        const trust =
+          verified === true
+            ? " [signed ✓]"
+            : verified === false
+              ? " [signature INVALID]"
+              : " [unsigned]";
         this.append(
           this.config.agent,
           "import",
-          `imported bundle: ${counts.attributions} attribution(s), ${counts.reviews} review(s)`,
+          `imported bundle: ${counts.attributions} attribution(s), ${counts.reviews} review(s)${trust}`,
           null,
           null,
-          counts,
+          { ...counts, verified },
         );
       }
     });
     tx.immediate();
-    return counts;
+    return { ...counts, verified };
   }
 
   /**
@@ -2194,6 +2300,10 @@ export class Board {
 
   /** Aggregate metrics for a scorecard: coverage, AI/human ratio, per-agent. */
   report(): Report {
+    return this.readSnapshot(() => this.reportSnapshot());
+  }
+
+  private reportSnapshot(): Report {
     const one = (sql: string, ...params: unknown[]): number => {
       const row = this.db.prepare(sql).get(...params) as
         { n: number } | undefined;
@@ -2485,13 +2595,28 @@ export class Board {
   // --- read ------------------------------------------------------------------
 
   status(forAgent?: string): BoardStatus {
-    return {
+    // One read snapshot for the whole view: a concurrent writer committing
+    // between these queries can't produce a status that mixes pre- and
+    // post-write state.
+    return this.readSnapshot(() => ({
       agents: this.listAgents(),
       openTasks: this.listTasks().filter((t) => t.status !== "done"),
       unreadMessages: forAgent ? this.inbox(forAgent) : this.allUnread(),
       openRisks: this.listRisks("open"),
       recentTimeline: this.timeline(10),
-    };
+    }));
+  }
+
+  /**
+   * Run a read-only function inside a single SQLite snapshot so every query it
+   * makes sees a consistent point-in-time view of the board. Nested calls (a
+   * snapshot within a snapshot) reuse the outer one.
+   */
+  private readSnapshot<T>(fn: () => T): T {
+    if (this.db.inTransaction) {
+      return fn();
+    }
+    return this.db.transaction(fn)();
   }
 
   private allUnread(): Message[] {

@@ -5,6 +5,28 @@
 本项目所有重要变更记录于此。格式基于
 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，达到 1.0 后遵循语义化版本。
 
+## [0.1.5] - 2026-07-01
+
+### 安全 / 完整性（审核后续）
+
+- **外部锚定**补上末尾截断的缺口。`blackboard anchor` 把当前 head（`seq:hash`）写到
+  文件或 git note;`blackboard verify --against <anchor>` 证明被锚定的历史仍存在且未被
+  改动（`ok` / `truncated` / `altered`）——即使攻击者 DROP 掉 append-only 触发器再截断
+  末尾也会被抓到。新增 `Board.head()` / `verifyAnchor()`。
+- **签名 bundle。** `export` 现在用活跃 session 的密钥对 bundle 签名;`import` 会校验并
+  报告 `signature ✓ / INVALID / unsigned`。`import --require-signed` 拒收未签名或被篡改
+  的 bundle。让 sync 具备来源真实性,而不只是按 id 去重。新增 `Board.verifyBundle()`。
+- **消息脱敏现在是真擦除。** 消息正文不再复制进被哈希的 append-only 时间线（summary 只
+  存元数据）;正文只存在 `messages.body`,而 `redact` 会抹掉它——所以脱敏一条消息会从
+  所有存储位置移除其内容。决策 rationale 同理不再进时间线 payload。
+- **一致读快照。** `status`、`report`、`listTaskCards` 现在在单个 SQLite 读快照里执行,
+  并发提交无法产生"混了写前写后状态"的视图。
+
+### 说明
+
+- agent **名字**是句柄,不是经过认证的身份;密码学身份来自 session 签名（`sign` /
+  `verify`、bundle 签名）。授权判断不要信 `agent` 名字。
+
 ## [0.1.4] - 2026-07-01
 
 ### 安全 / 完整性

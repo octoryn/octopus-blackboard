@@ -277,6 +277,18 @@ blackboard sync push --target /shared/team.json          # file (shared drive)
 blackboard sync pull --target postgres://host/blackboard # team database (needs `pg`)
 ```
 
+`export` signs the bundle with your active session key; `import` verifies it and
+`import --require-signed` refuses unsigned or tampered bundles — so imported
+attribution has origin authenticity, not just id-dedup.
+
+Tamper-evidence goes further than the in-DB chain if you anchor the head
+externally:
+
+```bash
+blackboard anchor --git-note              # record seq:hash on the commit (or --out file)
+blackboard verify --against git-note      # prove history wasn't truncated/altered
+```
+
 Liveness and compliance:
 
 ```bash

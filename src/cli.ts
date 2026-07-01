@@ -17,7 +17,7 @@ program
   .description(
     "Octopus Blackboard — shared memory & AI attribution for coding agents",
   )
-  .version("0.1.4")
+  .version("0.1.5")
   .option("--board <dir>", "board directory (defaults to nearest .octoboard/)")
   .option("--as <agent>", "identity to write as (or set OCTOBOARD_AGENT)")
   .option(
@@ -1054,15 +1054,28 @@ program
 program
   .command("import")
   .argument("<file>", "bundle file to import")
+  .option(
+    "--require-signed",
+    "refuse a bundle that is unsigned or has a bad signature",
+  )
   .description("import an attribution bundle into this board (idempotent)")
-  .action((file) => {
+  .action((file, opts) => {
     const b = board();
     try {
       const bundle = JSON.parse(readFileSync(file, "utf8"));
-      const counts = b.importBundle(bundle);
+      const c = b.importBundle(bundle, {
+        requireSigned: Boolean(opts.requireSigned),
+      });
+      const trust =
+        c.verified === true
+          ? " (signature ✓)"
+          : c.verified === false
+            ? " (signature INVALID)"
+            : " (unsigned)";
       console.log(
-        `Imported ${counts.attributions} attribution(s), ${counts.reviews} review(s), ${counts.sessions} session(s), ${counts.decisions} decision(s).`,
+        `Imported ${c.attributions} attribution(s), ${c.reviews} review(s), ${c.sessions} session(s), ${c.decisions} decision(s)${trust}.`,
       );
+      if (c.verified === false) process.exitCode = 1;
     } catch (err) {
       console.error(err instanceof Error ? err.message : String(err));
       process.exitCode = 1;
@@ -1345,13 +1358,71 @@ program
   });
 
 program
+  .command("anchor")
+  .option("--out <file>", "write the anchor to a JSON file")
+  .option(
+    "--git-note",
+    "write the anchor as a git note on HEAD (refs/notes/blackboard)",
+  )
+  .description(
+    "record the current timeline head as an external anchor (proves against truncation)",
+  )
+  .action((opts) => {
+    const b = board();
+    const h = b.head();
+    b.close();
+    const line = `${h.seq}:${h.hash}`;
+    if (opts.out) {
+      writeFileSync(
+        opts.out,
+        JSON.stringify({ seq: h.seq, hash: h.hash }, null, 2),
+        "utf8",
+      );
+      console.log(`Anchor written to ${opts.out}  (${line})`);
+    } else if (opts.gitNote) {
+      const ok = git.writeNote("HEAD", `blackboard-anchor ${line}`);
+      console.log(
+        ok
+          ? `Anchor written to git note on HEAD  (${line})`
+          : "Failed — not a git repo?",
+      );
+      if (!ok) process.exitCode = 1;
+    } else {
+      console.log(line);
+    }
+  });
+
+program
   .command("verify")
+  .option(
+    "--against <spec>",
+    "check an external anchor: 'seq:hash', a JSON file, or 'git-note'",
+  )
   .description("verify the timeline hash chain and show signature trust")
-  .action(() => {
+  .action((opts) => {
     const b = board();
     const result = b.verifyChain();
     const sigs = b.verifySignatures(result); // reuse the one verification
     const signedThrough = b.signedThrough(result);
+    // Resolve + check an external anchor, if requested, before closing.
+    let anchorMsg: string | null = null;
+    if (opts.against) {
+      const parsed = resolveAnchor(opts.against);
+      if (!parsed) {
+        anchorMsg = `⚠ could not read anchor '${opts.against}'`;
+      } else {
+        const a = b.verifyAnchor(parsed.seq, parsed.hash);
+        if (a.status === "ok") {
+          anchorMsg = `✓ external anchor holds — history through seq ${parsed.seq} is intact`;
+        } else {
+          anchorMsg =
+            a.status === "truncated"
+              ? `✗ TRUNCATED — anchored seq ${parsed.seq} is gone (head is at ${a.headSeq})`
+              : `✗ ALTERED — history at/below seq ${parsed.seq} was changed`;
+          process.exitCode = 1;
+        }
+      }
+    }
     b.close();
     if (result.ok && (result.anchored || result.length === 0)) {
       console.log(`✓ chain intact — ${result.length} entr(ies) verified`);
@@ -1384,7 +1455,32 @@ program
         );
       }
     }
+    if (anchorMsg) console.log(anchorMsg);
   });
+
+/** Resolve an external anchor spec: `seq:hash`, a JSON file, or `git-note`. */
+function resolveAnchor(spec: string): { seq: number; hash: string } | null {
+  const parseLine = (s: string): { seq: number; hash: string } | null => {
+    const m = /(\d+):([0-9a-f]{64})/.exec(s);
+    return m ? { seq: Number(m[1]), hash: m[2] } : null;
+  };
+  if (spec === "git-note") {
+    const note = git.readNote("HEAD");
+    return note ? parseLine(note) : null;
+  }
+  if (existsSync(spec)) {
+    try {
+      const j = JSON.parse(readFileSync(spec, "utf8"));
+      if (typeof j.seq === "number" && typeof j.hash === "string") {
+        return { seq: j.seq, hash: j.hash };
+      }
+    } catch {
+      /* fall through */
+    }
+    return null;
+  }
+  return parseLine(spec);
+}
 
 function renderStatus(
   status: ReturnType<Board["status"]>,

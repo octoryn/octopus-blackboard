@@ -243,6 +243,17 @@ blackboard sync push --target /shared/team.json          # 文件(共享盘)
 blackboard sync pull --target postgres://host/blackboard # 团队数据库(需要 `pg`)
 ```
 
+`export` 用你活跃 session 的密钥对 bundle 签名;`import` 会校验,`import
+--require-signed` 拒收未签名或被篡改的 bundle——所以导入的归属有来源真实性,而不只是
+按 id 去重。
+
+如果把 head 锚定到外部,防篡改能力比 DB 内哈希链更强:
+
+```bash
+blackboard anchor --git-note              # 把 seq:hash 记到 commit 上(或 --out file)
+blackboard verify --against git-note      # 证明历史没被截断/改动
+```
+
 在线状态与合规:
 
 ```bash

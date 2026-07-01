@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
+import { Board } from "../src/board.js";
 import { openBoard, rawTamper, tempDir } from "./helpers.js";
 
 describe("append-only is enforced at the DB layer (audit #1)", () => {
@@ -124,6 +125,91 @@ describe("sync/import cannot accrete noise (audit #8)", () => {
     const afterSecond = b.timeline().filter((e) => e.kind === "import").length;
     expect(afterFirst).toBe(1);
     expect(afterSecond).toBe(1);
+    b.close();
+  });
+});
+
+describe("external anchoring makes truncation provable (audit risk #1)", () => {
+  let dir: ReturnType<typeof tempDir>;
+  beforeEach(() => (dir = tempDir()));
+  afterEach(() => dir.dispose());
+
+  it("verifyAnchor: ok when intact, truncated when tail deleted, altered when edited", () => {
+    const b = openBoard(dir.path);
+    b.note("claude", "a");
+    b.note("claude", "b");
+    b.note("claude", "c");
+    const anchor = b.head(); // record externally (e.g. commit this)
+    const dbPath = b.config.dbPath;
+    expect(b.verifyAnchor(anchor.seq, anchor.hash).status).toBe("ok");
+    b.close();
+
+    // Determined attacker drops triggers and truncates the tail...
+    const raw = rawTamper(dbPath);
+    raw.prepare("DELETE FROM timeline WHERE seq = 3").run();
+    raw.close();
+    const b2 = openBoard(dir.path);
+    // ...verifyChain alone might read "ok" if the anchor were also wiped, but the
+    // EXTERNAL anchor proves the row is gone.
+    expect(b2.verifyAnchor(anchor.seq, anchor.hash).status).toBe("truncated");
+    b2.close();
+  });
+
+  it("verifyAnchor reports 'altered' when history at/below the anchor is edited", () => {
+    const b = openBoard(dir.path);
+    b.note("claude", "a");
+    b.note("claude", "b");
+    const anchor = b.head();
+    const dbPath = b.config.dbPath;
+    b.close();
+    const raw = rawTamper(dbPath);
+    raw.prepare("UPDATE timeline SET summary = ? WHERE seq = 1").run("edited");
+    raw.close();
+    const b2 = openBoard(dir.path);
+    expect(b2.verifyAnchor(anchor.seq, anchor.hash).status).toBe("altered");
+    b2.close();
+  });
+});
+
+describe("bundle signing gives import origin authenticity (audit risk #2)", () => {
+  let src: ReturnType<typeof tempDir>;
+  let dst: ReturnType<typeof tempDir>;
+  beforeEach(() => {
+    src = tempDir("bbs-src-");
+    dst = tempDir("bbs-dst-");
+  });
+  afterEach(() => {
+    src.dispose();
+    dst.dispose();
+  });
+
+  it("a signed bundle verifies; a tampered one is caught; unsigned is null", () => {
+    const a = openBoard(src.path, { agent: "claude", cli: "claude-code" });
+    a.startSession(); // gives the session a signing key
+    a.attribute("cafe01", { actorType: "ai", actor: "claude" });
+    const bundle = a.exportBundle();
+    expect(bundle.signature).not.toBeNull();
+    expect(Board.verifyBundle(bundle)).toBe(true);
+    a.close();
+
+    // Import verifies the signature.
+    const b = openBoard(dst.path, { agent: "ci" });
+    expect(b.importBundle(bundle).verified).toBe(true);
+
+    // Forge an attribution and re-verify → rejected.
+    const forged = JSON.parse(JSON.stringify(bundle));
+    forged.attributions[0].actor = "mallory";
+    expect(Board.verifyBundle(forged)).toBe(false);
+    expect(() => b.importBundle(forged, { requireSigned: true })).toThrow(
+      /INVALID/,
+    );
+
+    // An unsigned bundle is null, and require-signed refuses it.
+    const unsigned = { ...bundle, signature: null, signedBy: null };
+    expect(Board.verifyBundle(unsigned)).toBeNull();
+    expect(() => b.importBundle(unsigned, { requireSigned: true })).toThrow(
+      /unsigned/,
+    );
     b.close();
   });
 });
