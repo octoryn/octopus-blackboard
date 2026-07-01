@@ -95,6 +95,18 @@ export interface AttributionBundle {
   decisions: Decision[];
 }
 
+/** Aggregate scorecard for a board — the `report` view. */
+export interface Report {
+  attributions: { total: number; ai: number; human: number };
+  commits: { total: number; aiProduced: number; humanReviewed: number; unreviewed: number };
+  /** Fraction (0..1) of AI-produced commits that have a human review. */
+  reviewCoverage: number;
+  aiHumanRatio: { ai: number; human: number };
+  perAgent: { agent: string; attributions: number; commits: number; files: number }[];
+  sessions: { total: number; open: number };
+  risks: { open: number };
+}
+
 /**
  * The blackboard. A thin, synchronous wrapper over a SQLite database. Every
  * mutation also appends one tamper-evident entry to the timeline within the
@@ -1434,6 +1446,91 @@ export class Board {
     return { sha: b.sha, gitAuthor: b.author, attributions: this.attributionsForCommit(b.sha) };
   }
 
+  /**
+   * Blame → narrative: from a single line, trace back to the session that
+   * introduced it and surface that session's whole story — what else it did,
+   * the decisions it made, and the handoffs it left. Turns `git blame` into
+   * "why does this line exist".
+   */
+  blameNarrative(
+    file: string,
+    line: number
+  ):
+    | {
+        sha: string;
+        gitAuthor: string;
+        attributions: Attribution[];
+        session: Session | null;
+        sessionTimeline: TimelineEvent[];
+        decisions: Decision[];
+        handoffs: Handoff[];
+      }
+    | undefined {
+    const b = git.blameLine(file, line);
+    if (!b) {
+      return undefined;
+    }
+    const attributions = this.attributionsForCommit(b.sha);
+    const sessionId = attributions.map((a) => a.sessionId).find((s): s is string => s !== null) ?? null;
+    const session = sessionId ? (this.getSession(sessionId) ?? null) : null;
+    const sessionTimeline = sessionId ? this.sessionTimeline(sessionId) : [];
+    const decisions = sessionId
+      ? (this.db.prepare("SELECT * FROM decisions WHERE session_id = ? ORDER BY created_at ASC").all(sessionId) as any[]).map(rowToDecision)
+      : [];
+    const handoffs = sessionId
+      ? (this.db.prepare("SELECT * FROM handoffs WHERE from_session = ? ORDER BY created_at ASC").all(sessionId) as any[]).map(rowToHandoff)
+      : [];
+    return { sha: b.sha, gitAuthor: b.author, attributions, session, sessionTimeline, decisions, handoffs };
+  }
+
+  // --- reporting -------------------------------------------------------------
+
+  /** Aggregate metrics for a scorecard: coverage, AI/human ratio, per-agent. */
+  report(): Report {
+    const one = (sql: string, ...params: unknown[]): number => {
+      const row = this.db.prepare(sql).get(...params) as { n: number } | undefined;
+      return row?.n ?? 0;
+    };
+    const attrTotal = one("SELECT COUNT(*) AS n FROM attributions");
+    const attrAi = one("SELECT COUNT(*) AS n FROM attributions WHERE actor_type = 'ai'");
+    const attrHuman = one("SELECT COUNT(*) AS n FROM attributions WHERE actor_type = 'human'");
+
+    const commitsTotal = one("SELECT COUNT(DISTINCT commit_sha) AS n FROM attributions");
+    const aiCommits = this.db
+      .prepare("SELECT DISTINCT commit_sha AS c FROM attributions WHERE actor_type = 'ai'")
+      .all() as { c: string }[];
+    let reviewed = 0;
+    for (const { c } of aiCommits) {
+      if (this.hasHumanReview(c)) {
+        reviewed += 1;
+      }
+    }
+    const aiProduced = aiCommits.length;
+    const unreviewed = aiProduced - reviewed;
+    const reviewCoverage = aiProduced === 0 ? 1 : reviewed / aiProduced;
+
+    const perAgentRows = this.db
+      .prepare(
+        `SELECT actor AS agent, COUNT(*) AS attributions, COUNT(DISTINCT commit_sha) AS commits,
+                COUNT(DISTINCT file) AS files
+         FROM attributions GROUP BY actor ORDER BY attributions DESC`
+      )
+      .all() as { agent: string; attributions: number; commits: number; files: number }[];
+
+    return {
+      attributions: { total: attrTotal, ai: attrAi, human: attrHuman },
+      commits: { total: commitsTotal, aiProduced, humanReviewed: reviewed, unreviewed },
+      reviewCoverage,
+      aiHumanRatio: { ai: attrAi, human: attrHuman },
+      perAgent: perAgentRows,
+      sessions: {
+        total: one("SELECT COUNT(*) AS n FROM sessions"),
+        open: one("SELECT COUNT(*) AS n FROM sessions WHERE finished_at IS NULL")
+      },
+      risks: { open: one("SELECT COUNT(*) AS n FROM risks WHERE status = 'open'") }
+    };
+  }
+
   // --- read ------------------------------------------------------------------
 
   status(forAgent?: string): BoardStatus {
@@ -1539,6 +1636,23 @@ function rowToReview(r: any): Review {
     outcome: r.outcome,
     note: r.note ?? null,
     createdAt: r.created_at
+  };
+}
+
+function rowToHandoff(r: any): Handoff {
+  return {
+    id: r.id,
+    fromAgent: r.from_agent,
+    toAgent: r.to_agent,
+    fromSession: r.from_session ?? null,
+    toSession: r.to_session ?? null,
+    summary: r.summary,
+    context: r.context ?? null,
+    relatedFiles: parseJsonArray(r.related_files),
+    openQuestions: parseJsonArray(r.open_questions),
+    taskKey: r.task_key ?? null,
+    createdAt: r.created_at,
+    acceptedAt: r.accepted_at ?? null
   };
 }
 

@@ -10,8 +10,10 @@ export type {
   PolicyResult,
   PolicyViolation,
   PolicyOptions,
-  AttributionBundle
+  AttributionBundle,
+  Report
 } from "./board.js";
+export { serve } from "./serve.js";
 export { loadConfig, resolveBoardDir, findBoardDir } from "./config.js";
 export type { BoardConfig, ConfigOverrides } from "./config.js";
 export * from "./types.js";

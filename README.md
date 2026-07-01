@@ -227,6 +227,19 @@ A session auto-signs its head on `session stop`. A signature over a head becomes
 even though the signature itself stays cryptographically valid. This is not yet
 a full PKI (no key distribution or revocation).
 
+## Visibility
+
+```bash
+blackboard report          # scorecard: review coverage %, AI/human ratio, per-agent
+blackboard blame src/auth.ts 42   # trace a line → the session that wrote it, and its
+                                  # other work, decisions, and handoffs (blame → narrative)
+blackboard serve           # read-only local web dashboard (http://localhost:4319)
+```
+
+The dashboard is dependency-free (`node:http`), strictly read-only (non-GET is
+refused), and auto-refreshes: live timeline, sessions, conflict/attribution
+state, and the accountability scorecard.
+
 ## MCP server
 
 Any MCP-capable agent can read and write the board directly. Register the

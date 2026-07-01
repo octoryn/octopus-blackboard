@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { Command } from "commander";
 import { Board } from "./board.js";
 import { loadConfig } from "./config.js";
+import { serve } from "./serve.js";
 import * as git from "./git.js";
 import type { RiskSeverity } from "./types.js";
 
@@ -527,6 +528,94 @@ program
     }
     console.log(`Files touched by both ${a} and ${bName}:`);
     for (const f of files) console.log(`  ${f}`);
+  });
+
+program
+  .command("serve")
+  .option("--port <n>", "port to listen on", (v) => parseInt(v, 10), 4319)
+  .description("start a read-only local web dashboard")
+  .action((opts) => {
+    const b = board();
+    const port = Number.isInteger(opts.port) && opts.port > 0 ? opts.port : 4319;
+    const server = serve(b, port);
+    console.error(`Dashboard on http://localhost:${port} (read-only) — Ctrl-C to stop`);
+    process.on("SIGINT", () => {
+      server.close();
+      b.close();
+      process.exit(0);
+    });
+  });
+
+program
+  .command("report")
+  .option("--json", "output raw JSON")
+  .description("scorecard: review coverage, AI/human ratio, per-agent breakdown")
+  .action((opts) => {
+    const b = board();
+    const r = b.report();
+    b.close();
+    if (opts.json) {
+      printJson(r);
+      return;
+    }
+    const pct = (n: number): string => `${Math.round(n * 100)}%`;
+    console.log("── Accountability scorecard ───────────");
+    console.log(`  review coverage:   ${pct(r.reviewCoverage)}  (${r.commits.humanReviewed}/${r.commits.aiProduced} AI commits human-reviewed)`);
+    console.log(`  unreviewed AI:     ${r.commits.unreviewed} commit(s)`);
+    console.log(`  attributions:      ${r.attributions.total}  (ai ${r.attributions.ai} / human ${r.attributions.human})`);
+    console.log(`  sessions:          ${r.sessions.total}  (${r.sessions.open} open)`);
+    console.log(`  open risks:        ${r.risks.open}`);
+    console.log("  per agent:");
+    if (r.perAgent.length === 0) console.log("    (none)");
+    for (const a of r.perAgent) {
+      console.log(`    ${a.agent.padEnd(14)} ${a.commits} commit(s), ${a.files} file(s), ${a.attributions} attribution(s)`);
+    }
+  });
+
+program
+  .command("blame")
+  .argument("<file>", "file to trace")
+  .argument("<line>", "line number")
+  .option("--json", "output raw JSON")
+  .description("trace a line back to the session that introduced it (narrative)")
+  .action((file, lineArg, opts) => {
+    const line = parseInt(lineArg, 10);
+    const b = board();
+    if (!Number.isInteger(line) || line < 1) {
+      b.close();
+      console.error("line must be a positive integer.");
+      process.exitCode = 1;
+      return;
+    }
+    const n = b.blameNarrative(file, line);
+    b.close();
+    if (!n) {
+      console.log("No blame available (not a git repo, or file/line unknown).");
+      return;
+    }
+    if (opts.json) {
+      printJson(n);
+      return;
+    }
+    console.log(`${file}:${line} last changed in ${n.sha.slice(0, 12)} (git author ${n.gitAuthor})`);
+    for (const a of n.attributions) {
+      console.log(`  produced by ${a.actorType} ${a.actor}${a.model ? ` [${a.model}]` : ""}`);
+    }
+    if (n.session) {
+      console.log(`  in session ${n.session.id.slice(0, 8)} (${n.session.agentName}, branch ${n.session.gitBranch ?? "-"})`);
+      // Show the session's other activity, minus the kinds surfaced separately
+      // (decisions/handoffs below) and the link/attribution for this very line.
+      const shownSeparately = new Set(["decision", "handoff", "link", "attribution"]);
+      const also = n.sessionTimeline.filter((e) => !shownSeparately.has(e.kind));
+      if (also.length > 0) {
+        console.log("  that session also:");
+        for (const e of also) console.log(`    · ${e.summary}`);
+      }
+      for (const d of n.decisions) console.log(`    ⟐ decided: ${d.title}`);
+      for (const h of n.handoffs) console.log(`    → handoff to ${h.toAgent}: ${h.summary}`);
+    } else {
+      console.log("  (no session context recorded for this commit)");
+    }
   });
 
 program

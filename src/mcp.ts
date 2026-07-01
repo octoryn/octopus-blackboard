@@ -316,6 +316,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       name: "board_trust",
       description: "Show signature trust: which sessions have signed the timeline and whether each signature is valid and still current.",
       inputSchema: { type: "object", properties: {} }
+    },
+    {
+      name: "board_report",
+      description: "Accountability scorecard: review coverage, AI/human ratio, per-agent breakdown, session and risk counts.",
+      inputSchema: { type: "object", properties: {} }
+    },
+    {
+      name: "board_blame",
+      description:
+        "Blame → narrative: trace a file line back to the session that introduced it and surface that session's other work, decisions, and handoffs.",
+      inputSchema: {
+        type: "object",
+        properties: { file: { type: "string" }, line: { type: "number" } },
+        required: ["file", "line"]
+      }
     }
   ]
 }));
@@ -515,6 +530,17 @@ function handleTool(name: string, args: Record<string, any>, actor: string) {
       return text(
         withBoard((b) => ({ signedThrough: b.signedThrough(), signatures: b.verifySignatures() }))
       );
+
+    case "board_report":
+      return text(withBoard((b) => b.report()));
+
+    case "board_blame": {
+      const line = intArg(args.line, 0);
+      if (line < 1) {
+        return text("line must be a positive integer.");
+      }
+      return text(withBoard((b) => b.blameNarrative(String(args.file), line) ?? "No blame available."));
+    }
 
     default:
       return text(`Unknown tool: ${name}`);
