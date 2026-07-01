@@ -17,7 +17,7 @@ program
   .description(
     "Octopus Blackboard — shared memory & AI attribution for coding agents",
   )
-  .version("0.1.0")
+  .version("0.1.1")
   .option("--board <dir>", "board directory (defaults to nearest .octoboard/)")
   .option("--as <agent>", "identity to write as (or set OCTOBOARD_AGENT)")
   .option(

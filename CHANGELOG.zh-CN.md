@@ -1,0 +1,61 @@
+[English](CHANGELOG.md) | **简体中文**
+
+# 变更日志
+
+本项目所有重要变更记录于此。格式基于
+[Keep a Changelog](https://keepachangelog.com/zh-CN/)，达到 1.0 后遵循语义化版本。
+
+## [0.1.1] - 2026-07-01
+
+### 文档
+
+- 所有文档现在均为**双语**（英文 + 简体中文），文件顶部带语言切换：`README`、
+  `docs/attribution`、`CONTRIBUTING`、`SECURITY`、`CODE_OF_CONDUCT`、`CHANGELOG`。
+- 修正了两份 README 的 MCP 工具清单,补全所有已发布工具。
+
+### 变更
+
+- 对 `src/` 与 `tests/` 应用 Prettier（仅格式化,无行为变化）。
+
+## [0.1.0] - 2026-07-01
+
+首个公开发布。面向 AI 编码 agent 的共享记忆、归属与治理层——它记录并暴露,绝不编排。
+
+### 新增
+
+- **协调核心** —— 本地优先的 SQLite 板,带防篡改的哈希链 `timeline`（连续性 + head
+  锚点检查,能抓中间行与尾部截断）。agents、带冲突认知认领的 tasks、messages、
+  handoffs（会出现在收件方 inbox）、risks、decisions、evidence、文件改动记录。
+- **AI 归属与共享开发记忆** —— 一等 session,捕获机器/分支/仓库上下文;provider
+  无关的 agent 身份（`provider` / `model` / `cli` / `version`）;以 Git commit 为键的
+  归属与 review。Git 集成为只读加 additive `git notes`——绝不 rewrite 历史。查询层:
+  `who`、`explain`、`commits`、`unreviewed`、`joint`、行级 `blame` → 叙事。
+- **治理链** —— `check` CI 门禁（存在未审 AI 工作即非零退出;要求*已批准*的人类
+  review）;`export` / `import` 可携带归属 bundle;`trailers`;`watch` / `since` 订阅
+  原语;session 签名 v0（Ed25519,`sign` / `verify`,含 trusted/stale/unanchored 状态）。
+- **可见性** —— `report` 问责计分卡（review 覆盖率、AI/人类比例、按 agent）;`blame`
+  → session 叙事;`serve` 只读 web 看板（零依赖、仅环回）。
+- **团队后端** —— `sync` 到共享文件或 Postgres（只同步可携带记录,绝不含私有哈希
+  链）;session `heartbeat`,带活跃/陈旧在线状态与实时同文件碰撞告警;`prune` 保留
+  与 `redact` 读层脱敏（时间线绝不被 prune）。
+- **Transcript 摄取** —— `ingest` 适配器:`generic` 规范化 schema（任意 CLI 的稳定
+  路径）加上针对 `claude-code` / `codex` / `gemini` / `grok` 的 tool-use JSONL 启发式。
+- **接口** —— `octoboard` / `blackboard` CLI、MCP stdio 服务器（用官方 SDK client 验证
+  过）、以及 `mcp-config`——为 Cursor、Claude Code、Codex、Gemini、VS Code、Windsurf
+  一步生成客户端配置。含库形式的编程入口。
+
+### 安全
+
+- 面向 Git 的辅助函数使用 `--end-of-options` / `--`,使攻击者可控的 rev 或路径无法被
+  当作 `git` 标志（阻止通过 `git show --output` 任意写文件——该路径可经 MCP 触达）。
+- 看板默认绑定 `127.0.0.1`（`--host` 显式开放）。
+- `redact` 在所有读路径抹掉内容（时间线覆盖层 + 源行）;review 门禁要求已批准的
+  outcome;当无法排除尾部截断时,`verify` 会显示 `unanchored` 状态。
+- WAL 下 `synchronous=FULL` 保证审计日志耐久;活跃 session 指针事务性地存在 DB 里（无
+  跨进程竞态）;session 私钥在 `0700` 目录下为 `0600`。
+
+### 说明
+
+- 经过三轮对抗审核（正确性、安全、持久化、索引）加固。59 个测试。
+- 已知 defer 的限制（记录在 `docs/attribution.md`）:合并 commit 归属 0 文件;删除的
+  文件被归属为 "produced"。
