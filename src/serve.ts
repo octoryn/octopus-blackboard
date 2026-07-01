@@ -7,7 +7,7 @@ import type { Board } from "./board.js";
  * non-GET requests are refused, and there are no mutation endpoints — the
  * dashboard observes the board, it never changes it.
  */
-export function serve(board: Board, port: number): Server {
+export function serve(board: Board, port: number, host = "127.0.0.1"): Server {
   const json = (res: import("node:http").ServerResponse, data: unknown): void => {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify(data));
@@ -49,7 +49,9 @@ export function serve(board: Board, port: number): Server {
       res.end(err instanceof Error ? err.message : String(err));
     }
   });
-  server.listen(port);
+  // Bind to loopback by default — the dashboard exposes the whole board with no
+  // auth, so it must not be reachable from the LAN unless explicitly opted in.
+  server.listen(port, host);
   return server;
 }
 
@@ -109,17 +111,21 @@ async function refresh() {
   try {
     const [status, report, timeline] = await Promise.all([get("/api/status"), get("/api/report"), get("/api/timeline")]);
 
-    $("chain").innerHTML = status.chain.ok
-      ? '<span class="ok">✓ chain intact (' + status.chain.length + ')</span>'
-      : '<span class="bad">✗ chain BROKEN @ ' + status.chain.brokenAtSeq + '</span>';
+    $("chain").innerHTML = !status.chain.ok
+      ? '<span class="bad">✗ chain BROKEN @ ' + status.chain.brokenAtSeq + '</span>'
+      : (status.chain.anchored || status.chain.length === 0)
+        ? '<span class="ok">✓ chain intact (' + status.chain.length + ')</span>'
+        : '<span class="warn">⚠ intact but unanchored (' + status.chain.length + ')</span>';
     $("trust").innerHTML = status.signedThrough > 0
       ? '<span class="ok">signed through #' + status.signedThrough + '</span>'
       : '<span class="muted">unsigned</span>';
 
-    const cov = Math.round(report.reviewCoverage * 100);
-    const covClass = cov >= 100 ? "ok" : cov >= 50 ? "warn" : "bad";
+    const naCov = report.reviewCoverage === null;
+    const cov = naCov ? 0 : report.reviewCoverage === 1 ? 100 : Math.floor(report.reviewCoverage * 100);
+    const covClass = naCov ? "muted" : cov >= 100 ? "ok" : cov >= 50 ? "warn" : "bad";
+    const covLabel = naCov ? "n/a" : cov + "%";
     $("report").innerHTML =
-      '<div class="kv"><span>review coverage</span><b class="' + covClass + '">' + cov + '%</b></div>' +
+      '<div class="kv"><span>review coverage</span><b class="' + covClass + '">' + covLabel + '</b></div>' +
       '<div class="bar"><span style="width:' + cov + '%"></span></div>' +
       '<div class="kv"><span>AI commits</span><b>' + report.commits.aiProduced + '</b></div>' +
       '<div class="kv"><span>unreviewed AI</span><b class="' + (report.commits.unreviewed ? "bad" : "ok") + '">' + report.commits.unreviewed + '</b></div>' +

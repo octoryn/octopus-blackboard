@@ -26,9 +26,9 @@ describe("report scorecard", () => {
     b.close();
   });
 
-  it("coverage is 100% when there is no AI work to review", () => {
+  it("coverage is N/A (null), not 100%, when there is no AI work to review", () => {
     const b = openBoard(dir.path, { agent: "claude" });
-    expect(b.report().reviewCoverage).toBe(1);
+    expect(b.report().reviewCoverage).toBeNull();
     b.close();
   });
 });

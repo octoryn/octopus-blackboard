@@ -53,6 +53,13 @@ export interface ChainVerification {
   length: number;
   /** Seq of the first entry whose hash does not validate, if any. */
   brokenAtSeq: number | null;
+  /**
+   * Whether a head anchor was present. When false on a non-empty timeline, tail
+   * truncation is undetectable from the DB alone (the anchor may be absent
+   * because the board predates anchoring, or because it was deleted) — callers
+   * should present this as "links intact but unanchored", not a clean pass.
+   */
+  anchored: boolean;
 }
 
 export type PolicyViolationKind = "unreviewed" | "unattributed" | "chain-broken";
@@ -100,10 +107,13 @@ export interface AttributionBundle {
 export interface Report {
   attributions: { total: number; ai: number; human: number };
   commits: { total: number; aiProduced: number; humanReviewed: number; unreviewed: number };
-  /** Fraction (0..1) of AI-produced commits that have a human review. */
-  reviewCoverage: number;
+  /**
+   * Fraction (0..1) of AI-produced commits with an approved human review, or
+   * `null` when there is no AI work to review (N/A — not 100%).
+   */
+  reviewCoverage: number | null;
   aiHumanRatio: { ai: number; human: number };
-  perAgent: { agent: string; attributions: number; commits: number; files: number }[];
+  perAgent: { agent: string; actorType: string; attributions: number; commits: number; files: number }[];
   sessions: { total: number; open: number };
   risks: { open: number };
 }
@@ -230,13 +240,15 @@ export class Board {
   /** Re-walk the chain and confirm every hash links to its predecessor. */
   verifyChain(): ChainVerification {
     const rows = this.db.prepare("SELECT * FROM timeline ORDER BY seq ASC").all() as any[];
+    const anchor = this.headAnchor();
+    const anchored = anchor !== null;
     let prevHash = GENESIS_HASH;
     let prevSeq = 0;
     for (const row of rows) {
       // Contiguity: seq must increment by exactly 1 (catches a missing middle
       // row even before the hash check).
       if (row.seq !== prevSeq + 1) {
-        return { ok: false, length: rows.length, brokenAtSeq: row.seq };
+        return { ok: false, length: rows.length, brokenAtSeq: row.seq, anchored };
       }
       const recomputed = Board.computeHash({
         seq: row.seq,
@@ -251,23 +263,23 @@ export class Board {
         prevHash
       });
       if (row.prev_hash !== prevHash || row.hash !== recomputed) {
-        return { ok: false, length: rows.length, brokenAtSeq: row.seq };
+        return { ok: false, length: rows.length, brokenAtSeq: row.seq, anchored };
       }
       prevHash = row.hash;
       prevSeq = row.seq;
     }
-    // Tail-truncation check against the recorded head anchor. Boards written
-    // before anchoring existed have no anchor; those fall back to chain-internal
-    // checks only.
-    const anchor = this.headAnchor();
+    // Tail-truncation check against the recorded head anchor. When no anchor is
+    // present on a non-empty timeline (legacy board, OR a deleted anchor), tail
+    // truncation cannot be detected from the DB alone — reported via `anchored`
+    // so callers don't present it as a clean pass.
     if (anchor) {
       const lastSeq = rows.length > 0 ? rows[rows.length - 1].seq : 0;
       const lastHash = rows.length > 0 ? rows[rows.length - 1].hash : GENESIS_HASH;
       if (lastSeq !== anchor.seq || lastHash !== anchor.hash) {
-        return { ok: false, length: rows.length, brokenAtSeq: anchor.seq };
+        return { ok: false, length: rows.length, brokenAtSeq: anchor.seq, anchored };
       }
     }
-    return { ok: true, length: rows.length, brokenAtSeq: null };
+    return { ok: true, length: rows.length, brokenAtSeq: null, anchored };
   }
 
   timeline(limit = 50): TimelineEvent[] {
@@ -1196,14 +1208,19 @@ export class Board {
     return [...seen.values()].sort((x, y) => (x.at < y.at ? 1 : -1));
   }
 
-  /** AI-attributed commits with no human review — the accountability gap. */
+  /**
+   * AI-attributed commits with no APPROVED human review — the accountability
+   * gap. A commit reviewed but rejected/changes-requested is still unreviewed
+   * for this purpose (sign-off was withheld), so it appears here.
+   */
   unreviewedCommits(): { commit: string; actor: string; at: string }[] {
     const rows = this.db
       .prepare(
         `SELECT a.commit_sha, a.actor, MIN(a.created_at) AS at FROM attributions a
          WHERE a.actor_type = 'ai'
            AND NOT EXISTS (
-             SELECT 1 FROM reviews r WHERE r.commit_sha = a.commit_sha AND r.reviewer_type = 'human'
+             SELECT 1 FROM reviews r
+             WHERE r.commit_sha = a.commit_sha AND r.reviewer_type = 'human' AND r.outcome = 'approved'
            )
          GROUP BY a.commit_sha ORDER BY at DESC`
       )
@@ -1249,10 +1266,16 @@ export class Board {
     );
   }
 
+  /**
+   * A commit counts as human-reviewed only with an APPROVED human review — a
+   * `rejected` or `changes-requested` outcome is a review that withheld
+   * sign-off, so it must not clear the accountability gate or coverage metric.
+   * `commented` is neutral engagement and likewise does not count as sign-off.
+   */
   private hasHumanReview(sha: string): boolean {
     return (
       this.db
-        .prepare("SELECT 1 FROM reviews WHERE commit_sha = ? AND reviewer_type = 'human' LIMIT 1")
+        .prepare("SELECT 1 FROM reviews WHERE commit_sha = ? AND reviewer_type = 'human' AND outcome = 'approved' LIMIT 1")
         .get(sha) !== undefined
     );
   }
@@ -1527,15 +1550,16 @@ export class Board {
     }
     const aiProduced = aiCommits.length;
     const unreviewed = aiProduced - reviewed;
-    const reviewCoverage = aiProduced === 0 ? 1 : reviewed / aiProduced;
+    // N/A (null), not 100%, when there is no AI work to review.
+    const reviewCoverage = aiProduced === 0 ? null : reviewed / aiProduced;
 
     const perAgentRows = this.db
       .prepare(
-        `SELECT actor AS agent, COUNT(*) AS attributions, COUNT(DISTINCT commit_sha) AS commits,
-                COUNT(DISTINCT file) AS files
-         FROM attributions GROUP BY actor ORDER BY attributions DESC`
+        `SELECT actor AS agent, actor_type AS actorType, COUNT(*) AS attributions,
+                COUNT(DISTINCT commit_sha) AS commits, COUNT(DISTINCT file) AS files
+         FROM attributions GROUP BY actor, actor_type ORDER BY attributions DESC`
       )
-      .all() as { agent: string; attributions: number; commits: number; files: number }[];
+      .all() as { agent: string; actorType: string; attributions: number; commits: number; files: number }[];
 
     return {
       attributions: { total: attrTotal, ai: attrAi, human: attrHuman },
@@ -1618,22 +1642,46 @@ export class Board {
   }
 
   /**
-   * Redact a timeline entry's displayed content. The stored row is left intact
-   * so the hash chain still verifies (integrity is preserved); reads via
-   * `timeline`/`since`/`sessionTimeline` show a tombstone instead. The redaction
-   * act is itself audited. NOTE: this hides content at the read layer — it is
-   * not cryptographic erasure (the original remains in the DB to keep the
-   * chain valid). Don't store secrets you must be able to destroy.
+   * Redact a timeline entry's content across ALL read paths. Two things happen:
+   * (1) the timeline row's displayed summary/payload is overlaid with a
+   * tombstone (`timeline`/`since`/`sessionTimeline`), and (2) the underlying
+   * source row that the entry points at (a message body, evidence note, handoff
+   * text, decision rationale, risk title) is blanked in its own table — because
+   * those tables are read directly by `inbox`/`status`/the dashboard and would
+   * otherwise leak the content the overlay only hid on the timeline.
+   *
+   * The timeline row's stored hash input is left intact so the chain still
+   * verifies. NOTE: this hides content at the read layer — it is not
+   * cryptographic erasure (the original summary remains in the timeline row to
+   * keep the chain valid). Don't store secrets you must be able to destroy.
    */
   redact(seq: number, reason: string | null = null): boolean {
-    const exists = this.db.prepare("SELECT 1 FROM timeline WHERE seq = ?").get(seq);
-    if (!exists) {
+    const row = this.db.prepare("SELECT ref_table, ref_id FROM timeline WHERE seq = ?").get(seq) as
+      | { ref_table: string | null; ref_id: string | null }
+      | undefined;
+    if (!row) {
       return false;
     }
     const tx = this.db.transaction(() => {
       this.db
         .prepare("INSERT OR REPLACE INTO redactions (seq, reason, actor, created_at) VALUES (?, ?, ?, ?)")
         .run(seq, reason, this.config.agent, now());
+      // Blank the free-text columns of the source row, if any, so no direct
+      // read path can surface the redacted content.
+      const TOMB = "[redacted]";
+      const blanks: Record<string, string> = {
+        messages: "UPDATE messages SET body = ? WHERE id = ?",
+        evidence: "UPDATE evidence SET ref = ?, note = ? WHERE id = ?",
+        handoffs: "UPDATE handoffs SET summary = ?, context = ? WHERE id = ?",
+        decisions: "UPDATE decisions SET rationale = ? WHERE id = ?",
+        risks: "UPDATE risks SET title = ? WHERE id = ?"
+      };
+      if (row.ref_table && row.ref_id && blanks[row.ref_table]) {
+        const sql = blanks[row.ref_table];
+        const argCount = (sql.match(/\?/g) ?? []).length;
+        const params = Array<string>(argCount - 1).fill(TOMB);
+        this.db.prepare(sql).run(...params, row.ref_id);
+      }
       this.append(this.config.agent, "redaction", `redacted #${seq}${reason ? `: ${reason}` : ""}`, "timeline", String(seq), { seq });
     });
     tx.immediate();
@@ -1683,18 +1731,22 @@ export class Board {
         counts.notes += 1;
       }
     }
-    this.db
-      .transaction(() =>
-        this.append(
-          this.config.agent,
-          "ingest",
-          `ingested ${counts.files} file(s), ${counts.decisions} decision(s), ${counts.notes} note(s)`,
-          null,
-          null,
-          counts
+    // Don't append a summary event for an empty ingest — that would accrete
+    // pure noise into the immutable timeline on no-op transcripts.
+    if (counts.files + counts.decisions + counts.notes > 0) {
+      this.db
+        .transaction(() =>
+          this.append(
+            this.config.agent,
+            "ingest",
+            `ingested ${counts.files} file(s), ${counts.decisions} decision(s), ${counts.notes} note(s)`,
+            null,
+            null,
+            counts
+          )
         )
-      )
-      .immediate();
+        .immediate();
+    }
     return counts;
   }
 

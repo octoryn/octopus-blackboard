@@ -46,9 +46,16 @@ const EDIT_TOOL_RE = /edit|write|patch|create|apply|delete|remove/i;
  * path inside an `input`/`args` object one level below the tool name — so the
  * change kind must be derived from the ancestor, not the leaf.
  */
-function collectFileEdits(value: unknown, out: Map<string, FileChangeKind>, ctxTool = ""): void {
+const MAX_DEPTH = 200;
+
+function collectFileEdits(value: unknown, out: Map<string, FileChangeKind>, ctxTool = "", depth = 0): void {
+  // Bound recursion so a pathologically-nested (attacker-influenced) transcript
+  // cannot overflow the stack.
+  if (depth > MAX_DEPTH) {
+    return;
+  }
   if (Array.isArray(value)) {
-    for (const v of value) collectFileEdits(v, out, ctxTool);
+    for (const v of value) collectFileEdits(v, out, ctxTool, depth + 1);
     return;
   }
   if (value === null || typeof value !== "object") {
@@ -71,7 +78,7 @@ function collectFileEdits(value: unknown, out: Map<string, FileChangeKind>, ctxT
     out.set(obj.path as string, change);
   }
   for (const v of Object.values(obj)) {
-    collectFileEdits(v, out, toolName);
+    collectFileEdits(v, out, toolName, depth + 1);
   }
 }
 

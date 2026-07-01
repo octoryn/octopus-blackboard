@@ -178,7 +178,8 @@ Turn queries into an enforceable gate. Read-only — it reports pass/fail and
 exits non-zero; the CI system decides what to do. The blackboard never blocks.
 
 ```bash
-# In CI, on a PR branch — fail the build if any AI commit isn't human-reviewed:
+# In CI, on a PR branch — fail the build if any AI commit isn't human-APPROVED
+# (a rejected / changes-requested review does not clear the gate):
 blackboard check --range origin/main..HEAD --require-human-review
 echo $?   # 0 = pass, 1 = violations
 
@@ -272,10 +273,15 @@ blackboard prune --before 2026-01-01T00:00:00Z   # retention: drop old messages/
 blackboard redact 42 --reason PII                # hide a timeline entry's content
 ```
 
-`prune` never touches the append-only timeline (the audit trail). `redact` hides
-content at the read layer while keeping the hash chain valid — it is not
-cryptographic erasure (the original stays in the DB so the chain still verifies;
-don't store secrets you must be able to destroy).
+`prune` never touches the append-only timeline (the audit trail). `redact`
+blanks the content across every read path — the timeline overlay *and* the
+underlying source row (a message body, evidence note, etc.) so `inbox`/`status`/
+the dashboard can't leak it — while keeping the hash chain valid. It is not
+cryptographic erasure: the original summary stays in the timeline row so the
+chain still verifies, so don't store secrets you must be able to destroy. For
+tamper-evidence against an attacker with database write access, anchor the head
+hash externally (a commit, a log, a second machine) — `verify` shows an
+`unanchored` warning when it can't confirm the tail.
 
 ## Visibility
 

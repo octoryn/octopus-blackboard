@@ -255,8 +255,9 @@ program
   .option("--json", "output raw JSON")
   .description("show the append-only, hash-chained history")
   .action((opts) => {
+    const limit = Number.isInteger(opts.limit) && opts.limit > 0 ? opts.limit : 30;
     const b = board();
-    const events = opts.session ? b.sessionTimeline(opts.session) : b.timeline(opts.limit);
+    const events = opts.session ? b.sessionTimeline(opts.session) : b.timeline(limit);
     b.close();
     if (opts.json) {
       printJson(events);
@@ -550,12 +551,18 @@ program
 program
   .command("serve")
   .option("--port <n>", "port to listen on", (v) => parseInt(v, 10), 4319)
-  .description("start a read-only local web dashboard")
+  .option("--host <host>", "bind address (default 127.0.0.1; use 0.0.0.0 to expose on the LAN)", "127.0.0.1")
+  .description("start a read-only local web dashboard (loopback-only by default)")
   .action((opts) => {
+    if (!Number.isInteger(opts.port) || opts.port <= 0 || opts.port > 65535) {
+      console.error("--port must be an integer between 1 and 65535.");
+      process.exitCode = 1;
+      return;
+    }
     const b = board();
-    const port = Number.isInteger(opts.port) && opts.port > 0 ? opts.port : 4319;
-    const server = serve(b, port);
-    console.error(`Dashboard on http://localhost:${port} (read-only) — Ctrl-C to stop`);
+    const server = serve(b, opts.port, opts.host);
+    const where = opts.host === "0.0.0.0" ? `all interfaces :${opts.port} (LAN-exposed!)` : `http://localhost:${opts.port}`;
+    console.error(`Dashboard on ${where} (read-only) — Ctrl-C to stop`);
     process.on("SIGINT", () => {
       server.close();
       b.close();
@@ -575,9 +582,11 @@ program
       printJson(r);
       return;
     }
-    const pct = (n: number): string => `${Math.round(n * 100)}%`;
+    // Only show 100% when coverage is exactly complete; otherwise floor so a
+    // 99.5% never rounds up to a reassuring "100%".
+    const pct = (n: number | null): string => (n === null ? "n/a" : n === 1 ? "100%" : `${Math.floor(n * 100)}%`);
     console.log("── Accountability scorecard ───────────");
-    console.log(`  review coverage:   ${pct(r.reviewCoverage)}  (${r.commits.humanReviewed}/${r.commits.aiProduced} AI commits human-reviewed)`);
+    console.log(`  review coverage:   ${pct(r.reviewCoverage)}  (${r.commits.humanReviewed}/${r.commits.aiProduced} AI commits approved)`);
     console.log(`  unreviewed AI:     ${r.commits.unreviewed} commit(s)`);
     console.log(`  attributions:      ${r.attributions.total}  (ai ${r.attributions.ai} / human ${r.attributions.human})`);
     console.log(`  sessions:          ${r.sessions.total}  (${r.sessions.open} open)`);
@@ -585,7 +594,7 @@ program
     console.log("  per agent:");
     if (r.perAgent.length === 0) console.log("    (none)");
     for (const a of r.perAgent) {
-      console.log(`    ${a.agent.padEnd(14)} ${a.commits} commit(s), ${a.files} file(s), ${a.attributions} attribution(s)`);
+      console.log(`    ${a.agent.padEnd(12)} [${a.actorType}] ${a.commits} commit(s), ${a.files} file(s), ${a.attributions} attribution(s)`);
     }
   });
 
@@ -900,8 +909,11 @@ program
     const sigs = b.verifySignatures();
     const signedThrough = b.signedThrough();
     b.close();
-    if (result.ok) {
+    if (result.ok && (result.anchored || result.length === 0)) {
       console.log(`✓ chain intact — ${result.length} entr(ies) verified`);
+    } else if (result.ok) {
+      // Links verify, but with no head anchor a tail truncation is undetectable.
+      console.warn(`⚠ links intact but UNANCHORED — tail truncation undetectable (${result.length} entries). Anchor externally to be sure.`);
     } else {
       console.error(`✗ chain BROKEN at seq ${result.brokenAtSeq} (of ${result.length})`);
       process.exitCode = 1;
