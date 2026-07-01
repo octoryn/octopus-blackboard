@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
-## [Unreleased]
+## [0.1.2] - 2026-07-01
 
 ### Added
 
