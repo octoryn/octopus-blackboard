@@ -15,7 +15,11 @@ describe("B — CI gate (check)", () => {
     expect(before.ok).toBe(false);
     expect(before.violations[0].kind).toBe("unreviewed");
 
-    b.review("c0ffee00", { reviewerType: "human", reviewer: "Ran", outcome: "approved" });
+    b.review("c0ffee00", {
+      reviewerType: "human",
+      reviewer: "Ran",
+      outcome: "approved",
+    });
     const after = b.check({ commits: ["c0ffee00"], requireHumanReview: true });
     expect(after.ok).toBe(true);
     b.close();
@@ -24,8 +28,14 @@ describe("B — CI gate (check)", () => {
   it("an AI review alone does not satisfy the human-review gate", () => {
     const b = openBoard(dir.path, { agent: "claude" });
     b.attribute("beef0001", { actorType: "ai", actor: "claude" });
-    b.review("beef0001", { reviewerType: "ai", reviewer: "codex", outcome: "approved" });
-    expect(b.check({ commits: ["beef0001"], requireHumanReview: true }).ok).toBe(false);
+    b.review("beef0001", {
+      reviewerType: "ai",
+      reviewer: "codex",
+      outcome: "approved",
+    });
+    expect(
+      b.check({ commits: ["beef0001"], requireHumanReview: true }).ok,
+    ).toBe(false);
     b.close();
   });
 
@@ -65,10 +75,23 @@ describe("C — export / import portability", () => {
   });
 
   it("round-trips attribution to another board and is idempotent", () => {
-    const src = openBoard(dir.path, { agent: "claude", provider: "anthropic", model: "claude-opus-4-8", cli: "claude-code" });
+    const src = openBoard(dir.path, {
+      agent: "claude",
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+      cli: "claude-code",
+    });
     src.startSession();
-    src.attribute("dead0001", { actorType: "ai", actor: "claude", file: "auth.ts" });
-    src.review("dead0001", { reviewerType: "human", reviewer: "Ran", outcome: "approved" });
+    src.attribute("dead0001", {
+      actorType: "ai",
+      actor: "claude",
+      file: "auth.ts",
+    });
+    src.review("dead0001", {
+      reviewerType: "human",
+      reviewer: "Ran",
+      outcome: "approved",
+    });
     const bundle = src.exportBundle(["dead0001"]);
     src.close();
 
@@ -87,7 +110,9 @@ describe("C — export / import portability", () => {
 
     // The destination now answers attribution queries and the gate.
     expect(dst.commitsByActor("claude-code").length).toBe(1);
-    expect(dst.check({ commits: ["dead0001"], requireHumanReview: true }).ok).toBe(true);
+    expect(
+      dst.check({ commits: ["dead0001"], requireHumanReview: true }).ok,
+    ).toBe(true);
     dst.close();
   });
 

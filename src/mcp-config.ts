@@ -14,7 +14,15 @@ export interface McpConfigOptions {
   localEntry?: string;
 }
 
-export const MCP_CLIENTS = ["json", "claude-code", "cursor", "codex", "gemini", "vscode", "windsurf"] as const;
+export const MCP_CLIENTS = [
+  "json",
+  "claude-code",
+  "cursor",
+  "codex",
+  "gemini",
+  "vscode",
+  "windsurf",
+] as const;
 export type McpClient = (typeof MCP_CLIENTS)[number];
 
 interface ServerSpec {
@@ -25,7 +33,9 @@ interface ServerSpec {
 
 function serverSpec(agent: string, opts: McpConfigOptions): ServerSpec {
   const command = opts.localEntry ? "node" : "npx";
-  const args = opts.localEntry ? [opts.localEntry] : ["-y", "octopus-blackboard-mcp"];
+  const args = opts.localEntry
+    ? [opts.localEntry]
+    : ["-y", "octopus-blackboard-mcp"];
   const env: Record<string, string> = { OCTOBOARD_AGENT: agent };
   if (opts.boardDir) {
     env.OCTOBOARD_DIR = opts.boardDir;
@@ -50,7 +60,7 @@ function codexToml(spec: ServerSpec): string {
     `args = [${argsToml}]`,
     "",
     "[mcp_servers.blackboard.env]",
-    envToml
+    envToml,
   ].join("\n");
 }
 
@@ -63,7 +73,10 @@ export interface McpConfigResult {
   note?: string;
 }
 
-export function mcpConfig(client: McpClient, opts: McpConfigOptions = {}): McpConfigResult {
+export function mcpConfig(
+  client: McpClient,
+  opts: McpConfigOptions = {},
+): McpConfigResult {
   const agent = opts.agent ?? (client === "json" ? "claude" : client);
   const spec = serverSpec(agent, opts);
   switch (client) {
@@ -71,20 +84,29 @@ export function mcpConfig(client: McpClient, opts: McpConfigOptions = {}): McpCo
       return {
         path: "<project>/.mcp.json  (or run: claude mcp add-json)",
         content: mcpServersJson(spec),
-        note: "Project-scoped: commit .mcp.json to share the board with your team. Or user-scoped via `claude mcp add`."
+        note: "Project-scoped: commit .mcp.json to share the board with your team. Or user-scoped via `claude mcp add`.",
       };
     case "cursor":
-      return { path: "~/.cursor/mcp.json  (or <project>/.cursor/mcp.json)", content: mcpServersJson(spec) };
+      return {
+        path: "~/.cursor/mcp.json  (or <project>/.cursor/mcp.json)",
+        content: mcpServersJson(spec),
+      };
     case "vscode":
       return {
         path: "<project>/.vscode/mcp.json",
         content: JSON.stringify({ servers: { blackboard: spec } }, null, 2),
-        note: "VS Code uses a top-level `servers` key."
+        note: "VS Code uses a top-level `servers` key.",
       };
     case "windsurf":
-      return { path: "~/.codeium/windsurf/mcp_config.json", content: mcpServersJson(spec) };
+      return {
+        path: "~/.codeium/windsurf/mcp_config.json",
+        content: mcpServersJson(spec),
+      };
     case "gemini":
-      return { path: "~/.gemini/settings.json  (merge the mcpServers key)", content: mcpServersJson(spec) };
+      return {
+        path: "~/.gemini/settings.json  (merge the mcpServers key)",
+        content: mcpServersJson(spec),
+      };
     case "codex":
       return { path: "~/.codex/config.toml", content: codexToml(spec) };
     case "json":
@@ -92,7 +114,7 @@ export function mcpConfig(client: McpClient, opts: McpConfigOptions = {}): McpCo
       return {
         path: "your client's MCP config (mcpServers block)",
         content: mcpServersJson(spec),
-        note: "Standard MCP stdio config — works with any MCP-compatible client."
+        note: "Standard MCP stdio config — works with any MCP-compatible client.",
       };
   }
 }

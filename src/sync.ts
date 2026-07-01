@@ -31,15 +31,28 @@ const EMPTY: () => AttributionBundle = () => ({
   attributions: [],
   reviews: [],
   sessions: [],
-  decisions: []
+  decisions: [],
 });
 
 /** Merge `incoming` into `base`, deduping by row id. Returns [merged, added]. */
-function mergeById(base: AttributionBundle, incoming: AttributionBundle): [AttributionBundle, SyncCounts] {
+function mergeById(
+  base: AttributionBundle,
+  incoming: AttributionBundle,
+): [AttributionBundle, SyncCounts] {
   const merged = EMPTY();
   merged.exportedAt = incoming.exportedAt || base.exportedAt;
-  const counts: SyncCounts = { attributions: 0, reviews: 0, sessions: 0, decisions: 0 };
-  for (const key of ["attributions", "reviews", "sessions", "decisions"] as const) {
+  const counts: SyncCounts = {
+    attributions: 0,
+    reviews: 0,
+    sessions: 0,
+    decisions: 0,
+  };
+  for (const key of [
+    "attributions",
+    "reviews",
+    "sessions",
+    "decisions",
+  ] as const) {
     const seen = new Set((base[key] as { id: string }[]).map((r) => r.id));
     const out = [...(base[key] as { id: string }[])];
     for (const row of incoming[key] as { id: string }[]) {
@@ -63,7 +76,9 @@ export class FileSyncTarget implements SyncTarget {
       return EMPTY();
     }
     try {
-      const parsed = JSON.parse(readFileSync(this.path, "utf8")) as AttributionBundle;
+      const parsed = JSON.parse(
+        readFileSync(this.path, "utf8"),
+      ) as AttributionBundle;
       return { ...EMPTY(), ...parsed };
     } catch {
       return EMPTY();
@@ -109,13 +124,17 @@ export class PostgresSyncTarget implements SyncTarget {
         const mod = "pg";
         pg = await import(mod);
       } catch {
-        throw new Error("Postgres sync requires the optional 'pg' package: npm install pg");
+        throw new Error(
+          "Postgres sync requires the optional 'pg' package: npm install pg",
+        );
       }
       const Client = pg.default?.Client ?? pg.Client;
       const client = new Client({ connectionString: this.url });
       await client.connect();
       for (const t of ["attributions", "reviews", "sessions", "decisions"]) {
-        await client.query(`CREATE TABLE IF NOT EXISTS bb_${t} (id TEXT PRIMARY KEY, data JSONB NOT NULL)`);
+        await client.query(
+          `CREATE TABLE IF NOT EXISTS bb_${t} (id TEXT PRIMARY KEY, data JSONB NOT NULL)`,
+        );
       }
       return client;
     })();
@@ -124,12 +143,22 @@ export class PostgresSyncTarget implements SyncTarget {
 
   async push(bundle: AttributionBundle): Promise<SyncCounts> {
     const client = await this.client();
-    const counts: SyncCounts = { attributions: 0, reviews: 0, sessions: 0, decisions: 0 };
-    for (const key of ["attributions", "reviews", "sessions", "decisions"] as const) {
+    const counts: SyncCounts = {
+      attributions: 0,
+      reviews: 0,
+      sessions: 0,
+      decisions: 0,
+    };
+    for (const key of [
+      "attributions",
+      "reviews",
+      "sessions",
+      "decisions",
+    ] as const) {
       for (const row of bundle[key] as { id: string }[]) {
         const res = await client.query(
           `INSERT INTO bb_${key} (id, data) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`,
-          [row.id, JSON.stringify(row)]
+          [row.id, JSON.stringify(row)],
         );
         counts[key] += res.rowCount ?? 0;
       }
@@ -140,9 +169,16 @@ export class PostgresSyncTarget implements SyncTarget {
   async pull(): Promise<AttributionBundle> {
     const client = await this.client();
     const bundle = EMPTY();
-    for (const key of ["attributions", "reviews", "sessions", "decisions"] as const) {
+    for (const key of [
+      "attributions",
+      "reviews",
+      "sessions",
+      "decisions",
+    ] as const) {
       const res = await client.query(`SELECT data FROM bb_${key}`);
-      (bundle[key] as unknown[]) = res.rows.map((r: any) => (typeof r.data === "string" ? JSON.parse(r.data) : r.data));
+      (bundle[key] as unknown[]) = res.rows.map((r: any) =>
+        typeof r.data === "string" ? JSON.parse(r.data) : r.data,
+      );
     }
     return bundle;
   }

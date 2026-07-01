@@ -8,14 +8,23 @@ import { loadConfig, type ConfigOverrides } from "../src/config.js";
 /** A fresh temp directory, auto-removed by the returned dispose(). */
 export function tempDir(prefix = "bb-"): { path: string; dispose: () => void } {
   const path = mkdtempSync(join(tmpdir(), prefix));
-  return { path, dispose: () => rmSync(path, { recursive: true, force: true }) };
+  return {
+    path,
+    dispose: () => rmSync(path, { recursive: true, force: true }),
+  };
 }
 
 /** Open a board rooted at `<dir>/.octoboard` with an explicit identity. */
 export function openBoard(dir: string, overrides: ConfigOverrides = {}): Board {
   // Never let an ambient session pointer/env leak into a test board.
   delete process.env.OCTOBOARD_SESSION;
-  return new Board(loadConfig({ boardDir: join(dir, ".octoboard"), agent: "claude", ...overrides }));
+  return new Board(
+    loadConfig({
+      boardDir: join(dir, ".octoboard"),
+      agent: "claude",
+      ...overrides,
+    }),
+  );
 }
 
 export function boardDir(dir: string): string {

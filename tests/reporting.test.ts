@@ -14,7 +14,11 @@ describe("report scorecard", () => {
     const b = openBoard(dir.path, { agent: "claude", cli: "claude-code" });
     b.attribute("c1", { actorType: "ai", actor: "claude", file: "a.ts" });
     b.attribute("c2", { actorType: "ai", actor: "claude", file: "b.ts" });
-    b.review("c1", { reviewerType: "human", reviewer: "Ran", outcome: "approved" });
+    b.review("c1", {
+      reviewerType: "human",
+      reviewer: "Ran",
+      outcome: "approved",
+    });
 
     const r = b.report();
     expect(r.commits.aiProduced).toBe(2);
@@ -79,10 +83,14 @@ describe("read-only dashboard server", () => {
     await new Promise((r) => server.once("listening", r));
     const port = (server.address() as AddressInfo).port;
 
-    const report = await (await fetch(`http://localhost:${port}/api/report`)).json();
+    const report = await (
+      await fetch(`http://localhost:${port}/api/report`)
+    ).json();
     expect(report.commits.aiProduced).toBe(1);
 
-    const post = await fetch(`http://localhost:${port}/api/status`, { method: "POST" });
+    const post = await fetch(`http://localhost:${port}/api/status`, {
+      method: "POST",
+    });
     expect(post.status).toBe(405);
 
     const html = await (await fetch(`http://localhost:${port}/`)).text();

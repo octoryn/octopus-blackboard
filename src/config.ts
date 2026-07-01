@@ -44,7 +44,9 @@ const DB_FILENAME = "board.db";
  * Walk up from `start` looking for an existing `.octoboard/` directory. Returns
  * the directory path if found, otherwise undefined.
  */
-export function findBoardDir(start: string = process.cwd()): string | undefined {
+export function findBoardDir(
+  start: string = process.cwd(),
+): string | undefined {
   let dir = resolve(start);
   for (;;) {
     const candidate = join(dir, BOARD_DIRNAME);
@@ -79,14 +81,18 @@ export function resolveBoardDir(explicit?: string): string {
  */
 function resolveIdentity(overrides: ConfigOverrides): AgentIdentity {
   const env = process.env;
-  const kind = overrides.agentKind ?? env.OCTOBOARD_AGENT_KIND ?? env.OCTOBOARD_CLI ?? null;
+  const kind =
+    overrides.agentKind ??
+    env.OCTOBOARD_AGENT_KIND ??
+    env.OCTOBOARD_CLI ??
+    null;
   return {
     name: overrides.agent ?? env.OCTOBOARD_AGENT ?? "anon",
     kind,
     provider: overrides.provider ?? env.OCTOBOARD_PROVIDER ?? null,
     model: overrides.model ?? env.OCTOBOARD_MODEL ?? null,
     cli: overrides.cli ?? env.OCTOBOARD_CLI ?? kind,
-    version: overrides.version ?? env.OCTOBOARD_VERSION ?? null
+    version: overrides.version ?? env.OCTOBOARD_VERSION ?? null,
   };
 }
 
@@ -111,8 +117,9 @@ export function loadConfig(overrides: ConfigOverrides = {}): BoardConfig {
     identity,
     // An explicit env override wins; otherwise the Board resolves the agent's
     // active session transactionally from the DB's current_sessions table.
-    sessionId: process.env.OCTOBOARD_SESSION && process.env.OCTOBOARD_SESSION.length > 0
-      ? process.env.OCTOBOARD_SESSION
-      : null
+    sessionId:
+      process.env.OCTOBOARD_SESSION && process.env.OCTOBOARD_SESSION.length > 0
+        ? process.env.OCTOBOARD_SESSION
+        : null,
   };
 }

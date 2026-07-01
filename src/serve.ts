@@ -8,7 +8,10 @@ import type { Board } from "./board.js";
  * dashboard observes the board, it never changes it.
  */
 export function serve(board: Board, port: number, host = "127.0.0.1"): Server {
-  const json = (res: import("node:http").ServerResponse, data: unknown): void => {
+  const json = (
+    res: import("node:http").ServerResponse,
+    data: unknown,
+  ): void => {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify(data));
   };
@@ -18,7 +21,8 @@ export function serve(board: Board, port: number, host = "127.0.0.1"): Server {
   // refresh it at most once per window rather than re-hashing all of history on
   // every poll (twice, once inside signedThrough) for a long-lived server.
   const VERIFY_TTL_MS = 5000;
-  let cached: { at: number; chain: ReturnType<Board["verifyChain"]> } | null = null;
+  let cached: { at: number; chain: ReturnType<Board["verifyChain"]> } | null =
+    null;
   const verifiedChain = (): ReturnType<Board["verifyChain"]> => {
     const nowMs = Date.now();
     if (!cached || nowMs - cached.at > VERIFY_TTL_MS) {
@@ -45,13 +49,16 @@ export function serve(board: Board, port: number, host = "127.0.0.1"): Server {
           return json(res, {
             ...board.status(),
             chain,
-            signedThrough: board.signedThrough(chain)
+            signedThrough: board.signedThrough(chain),
           });
         }
         case "/api/report":
           return json(res, board.report());
         case "/api/timeline":
-          return json(res, board.timeline(Number(url.searchParams.get("limit")) || 40));
+          return json(
+            res,
+            board.timeline(Number(url.searchParams.get("limit")) || 40),
+          );
         case "/api/sessions":
           return json(res, board.listSessions());
         case "/api/trust":

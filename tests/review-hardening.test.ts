@@ -17,9 +17,13 @@ describe("redaction covers the source row, not just the timeline (review #integr
     const inbox = b.inbox("claude", true);
     expect(inbox.every((m) => !m.body.includes("hunter2"))).toBe(true);
     const status = b.status("claude");
-    expect(status.unreadMessages.every((m) => !m.body.includes("hunter2"))).toBe(true);
+    expect(
+      status.unreadMessages.every((m) => !m.body.includes("hunter2")),
+    ).toBe(true);
     // Timeline overlay also hides it, and the chain is still valid.
-    expect(b.timeline().find((e) => e.seq === seq)!.summary).not.toContain("hunter2");
+    expect(b.timeline().find((e) => e.seq === seq)!.summary).not.toContain(
+      "hunter2",
+    );
     expect(b.verifyChain().ok).toBe(true);
     b.close();
   });
@@ -33,16 +37,28 @@ describe("review outcome semantics (review #integrity-2)", () => {
   it("a rejected human review does NOT clear the gate or count as coverage", () => {
     const b = openBoard(dir.path, { agent: "claude" });
     b.attribute("c1", { actorType: "ai", actor: "claude" });
-    b.review("c1", { reviewerType: "human", reviewer: "Ran", outcome: "rejected" });
+    b.review("c1", {
+      reviewerType: "human",
+      reviewer: "Ran",
+      outcome: "rejected",
+    });
 
     // Still unreviewed, gate still fails, coverage still 0.
     expect(b.unreviewedCommits().map((c) => c.commit)).toContain("c1");
-    expect(b.check({ commits: ["c1"], requireHumanReview: true }).ok).toBe(false);
+    expect(b.check({ commits: ["c1"], requireHumanReview: true }).ok).toBe(
+      false,
+    );
     expect(b.report().reviewCoverage).toBe(0);
 
     // An approval clears it.
-    b.review("c1", { reviewerType: "human", reviewer: "Ran", outcome: "approved" });
-    expect(b.check({ commits: ["c1"], requireHumanReview: true }).ok).toBe(true);
+    b.review("c1", {
+      reviewerType: "human",
+      reviewer: "Ran",
+      outcome: "approved",
+    });
+    expect(b.check({ commits: ["c1"], requireHumanReview: true }).ok).toBe(
+      true,
+    );
     expect(b.report().reviewCoverage).toBe(1);
     b.close();
   });

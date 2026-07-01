@@ -30,11 +30,21 @@ describe("migration from an old-schema board", () => {
     raw.exec(OLD_SCHEMA);
     raw
       .prepare("INSERT INTO agents VALUES (?,?,?,?,?)")
-      .run("a1", "codex", "codex-cli", "2026-06-01T00:00:00Z", "2026-06-01T00:00:00Z");
+      .run(
+        "a1",
+        "codex",
+        "codex-cli",
+        "2026-06-01T00:00:00Z",
+        "2026-06-01T00:00:00Z",
+      );
     raw.close();
 
     // Opening with the current code runs the additive migration.
-    const b = openBoard(dir.path, { agent: "claude", provider: "anthropic", cli: "claude-code" });
+    const b = openBoard(dir.path, {
+      agent: "claude",
+      provider: "anthropic",
+      cli: "claude-code",
+    });
 
     // Old agent preserved (v0.1 stored the label in `kind`; `cli` is a new
     // nullable field old rows legitimately lack).

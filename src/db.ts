@@ -35,7 +35,11 @@ function applySchema(db: Database.Database): void {
  */
 function migrate(db: Database.Database): void {
   const columns = (table: string): Set<string> =>
-    new Set((db.pragma(`table_info(${table})`) as { name: string }[]).map((c) => c.name));
+    new Set(
+      (db.pragma(`table_info(${table})`) as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
 
   const ensure = (table: string, column: string, decl: string): void => {
     if (!columns(table).has(column)) {

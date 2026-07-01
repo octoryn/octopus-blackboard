@@ -27,7 +27,9 @@ describe("timeline hash chain", () => {
 
     // Mutate seq 1 directly in SQLite, bypassing the board.
     const raw = new Database(dbPath);
-    raw.prepare("UPDATE timeline SET summary = ? WHERE seq = 1").run("something else");
+    raw
+      .prepare("UPDATE timeline SET summary = ? WHERE seq = 1")
+      .run("something else");
     raw.close();
 
     const b2 = openBoard(dir.path);
@@ -43,7 +45,9 @@ describe("timeline hash chain", () => {
     const dbPath = b.config.dbPath;
     b.close();
     const raw = new Database(dbPath);
-    raw.prepare("UPDATE timeline SET session_id = ? WHERE seq = 1").run("forged-session");
+    raw
+      .prepare("UPDATE timeline SET session_id = ? WHERE seq = 1")
+      .run("forged-session");
     raw.close();
     const b2 = openBoard(dir.path);
     expect(b2.verifyChain().ok).toBe(false);
@@ -78,7 +82,10 @@ describe("coordination", () => {
 
     const claude = openBoard(dir.path, { agent: "claude" });
     const inbox = claude.inbox("claude");
-    expect(inbox.map((m) => m.body).sort()).toEqual(["broadcast to all", "review edge cases"]);
+    expect(inbox.map((m) => m.body).sort()).toEqual([
+      "broadcast to all",
+      "review edge cases",
+    ]);
     claude.markRead(inbox[0].id);
     expect(claude.inbox("claude").length).toBe(1);
     claude.close();

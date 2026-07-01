@@ -60,7 +60,7 @@ describe("git attribution", () => {
       agent: "claude",
       provider: "anthropic",
       model: "claude-opus-4-8",
-      cli: "claude-code"
+      cli: "claude-code",
     });
     b.startSession("auth");
     commit("policy.ts", "x\n");
@@ -90,11 +90,21 @@ describe("git attribution", () => {
     expect(b.unreviewedCommits().map((c) => c.commit)).toContain(linked.sha);
 
     // Review by rev name "HEAD" must resolve to the same sha and clear it.
-    b.review("HEAD", { reviewerType: "human", reviewer: "Ran", outcome: "approved" });
-    expect(b.unreviewedCommits().map((c) => c.commit)).not.toContain(linked.sha);
+    b.review("HEAD", {
+      reviewerType: "human",
+      reviewer: "Ran",
+      outcome: "approved",
+    });
+    expect(b.unreviewedCommits().map((c) => c.commit)).not.toContain(
+      linked.sha,
+    );
 
     const explained = b.explain("HEAD")!;
-    expect(explained.reviews.some((r) => r.reviewerType === "human" && r.reviewer === "Ran")).toBe(true);
+    expect(
+      explained.reviews.some(
+        (r) => r.reviewerType === "human" && r.reviewer === "Ran",
+      ),
+    ).toBe(true);
     expect(explained.attributions.length).toBeGreaterThan(0);
     b.close();
   });
@@ -104,7 +114,11 @@ describe("git attribution", () => {
     b.startSession();
     commit("x.ts", "1\n");
     const linked = b.link("HEAD")!;
-    b.review("HEAD", { reviewerType: "ai", reviewer: "codex", outcome: "approved" });
+    b.review("HEAD", {
+      reviewerType: "ai",
+      reviewer: "codex",
+      outcome: "approved",
+    });
     expect(b.unreviewedCommits().map((c) => c.commit)).toContain(linked.sha);
     b.close();
   });

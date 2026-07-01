@@ -48,7 +48,12 @@ const EDIT_TOOL_RE = /edit|write|patch|create|apply|delete|remove/i;
  */
 const MAX_DEPTH = 200;
 
-function collectFileEdits(value: unknown, out: Map<string, FileChangeKind>, ctxTool = "", depth = 0): void {
+function collectFileEdits(
+  value: unknown,
+  out: Map<string, FileChangeKind>,
+  ctxTool = "",
+  depth = 0,
+): void {
   // Bound recursion so a pathologically-nested (attacker-influenced) transcript
   // cannot overflow the stack.
   if (depth > MAX_DEPTH) {
@@ -74,7 +79,11 @@ function collectFileEdits(value: unknown, out: Map<string, FileChangeKind>, ctxT
       out.set(obj[key] as string, change);
     }
   }
-  if (EDIT_TOOL_RE.test(toolName) && typeof obj.path === "string" && (obj.path as string).length > 0) {
+  if (
+    EDIT_TOOL_RE.test(toolName) &&
+    typeof obj.path === "string" &&
+    (obj.path as string).length > 0
+  ) {
     out.set(obj.path as string, change);
   }
   for (const v of Object.values(obj)) {
@@ -106,8 +115,12 @@ function heuristicAdapter(name: string): Adapter {
       for (const entry of parseJsonl(content)) {
         collectFileEdits(entry, edits);
       }
-      return [...edits.entries()].map(([path, change]) => ({ type: "file", path, change }));
-    }
+      return [...edits.entries()].map(([path, change]) => ({
+        type: "file",
+        path,
+        change,
+      }));
+    },
   };
 }
 
@@ -118,20 +131,23 @@ export const genericAdapter: Adapter = {
     const isEvent = (e: unknown): e is IngestEvent =>
       typeof e === "object" &&
       e !== null &&
-      ((e as any).type === "file" || (e as any).type === "decision" || (e as any).type === "note");
+      ((e as any).type === "file" ||
+        (e as any).type === "decision" ||
+        (e as any).type === "note");
 
     const trimmed = content.trim();
     let raw: unknown[];
     try {
       const parsed = JSON.parse(trimmed);
       if (Array.isArray(parsed)) raw = parsed;
-      else if (parsed && Array.isArray((parsed as any).events)) raw = (parsed as any).events;
+      else if (parsed && Array.isArray((parsed as any).events))
+        raw = (parsed as any).events;
       else raw = [parsed];
     } catch {
       raw = parseJsonl(trimmed); // fall back to JSONL of events
     }
     return raw.filter(isEvent);
-  }
+  },
 };
 
 const REGISTRY: Record<string, Adapter> = {
@@ -139,7 +155,7 @@ const REGISTRY: Record<string, Adapter> = {
   "claude-code": heuristicAdapter("claude-code"),
   codex: heuristicAdapter("codex"),
   gemini: heuristicAdapter("gemini"),
-  grok: heuristicAdapter("grok")
+  grok: heuristicAdapter("grok"),
 };
 
 export const ADAPTERS: string[] = Object.keys(REGISTRY);

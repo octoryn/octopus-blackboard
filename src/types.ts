@@ -85,7 +85,8 @@ export interface Attribution {
 }
 
 export type ReviewerType = "human" | "ai";
-export type ReviewOutcome = "approved" | "changes-requested" | "rejected" | "commented";
+export type ReviewOutcome =
+  "approved" | "changes-requested" | "rejected" | "commented";
 
 /** Review responsibility for a commit — who reviewed it, and the outcome. */
 export interface Review {

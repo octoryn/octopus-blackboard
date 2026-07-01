@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { Board } from "./board.js";
 import { loadConfig } from "./config.js";
 import { getAdapter, ADAPTERS } from "./adapters.js";
@@ -17,7 +20,7 @@ import type { RiskSeverity, FileChangeKind } from "./types.js";
  */
 const server = new Server(
   { name: "octopus-blackboard", version: "0.1.0" },
-  { capabilities: { tools: {} } }
+  { capabilities: { tools: {} } },
 );
 
 const defaultAgent = loadConfig().agent;
@@ -36,14 +39,18 @@ function text(value: unknown) {
     content: [
       {
         type: "text" as const,
-        text: typeof value === "string" ? value : JSON.stringify(value, null, 2)
-      }
-    ]
+        text:
+          typeof value === "string" ? value : JSON.stringify(value, null, 2),
+      },
+    ],
   };
 }
 
 const AGENT_PROP = {
-  agent: { type: "string", description: "acting agent identity (defaults to OCTOBOARD_AGENT)" }
+  agent: {
+    type: "string",
+    description: "acting agent identity (defaults to OCTOBOARD_AGENT)",
+  },
 };
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -54,16 +61,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         "Read the board: active agents, open tasks and who holds them, unread messages, open risks, recent history. Call this before starting work to see what other agents are doing.",
       inputSchema: {
         type: "object",
-        properties: { ...AGENT_PROP }
-      }
+        properties: { ...AGENT_PROP },
+      },
     },
     {
       name: "board_timeline",
-      description: "Read the append-only, hash-chained history of everything that happened on the board.",
+      description:
+        "Read the append-only, hash-chained history of everything that happened on the board.",
       inputSchema: {
         type: "object",
-        properties: { limit: { type: "number", default: 30 } }
-      }
+        properties: { limit: { type: "number", default: 30 } },
+      },
     },
     {
       name: "board_note",
@@ -71,8 +79,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: { text: { type: "string" }, ...AGENT_PROP },
-        required: ["text"]
-      }
+        required: ["text"],
+      },
     },
     {
       name: "board_claim",
@@ -81,61 +89,79 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: {
-          key: { type: "string", description: "task key, e.g. trust-layer-policy-schema" },
+          key: {
+            type: "string",
+            description: "task key, e.g. trust-layer-policy-schema",
+          },
           title: { type: "string" },
-          ...AGENT_PROP
+          ...AGENT_PROP,
         },
-        required: ["key"]
-      }
+        required: ["key"],
+      },
     },
     {
       name: "board_message",
-      description: "Leave a message for another agent (or broadcast with to='all').",
+      description:
+        "Leave a message for another agent (or broadcast with to='all').",
       inputSchema: {
         type: "object",
         properties: {
           to: { type: "string", description: "recipient agent name, or 'all'" },
           body: { type: "string" },
-          ...AGENT_PROP
+          ...AGENT_PROP,
         },
-        required: ["to", "body"]
-      }
+        required: ["to", "body"],
+      },
     },
     {
       name: "board_inbox",
-      description: "Read what's waiting for you: messages (addressed or broadcast) and handoffs left for you.",
+      description:
+        "Read what's waiting for you: messages (addressed or broadcast) and handoffs left for you.",
       inputSchema: {
         type: "object",
-        properties: { includeRead: { type: "boolean", default: false }, ...AGENT_PROP }
-      }
+        properties: {
+          includeRead: { type: "boolean", default: false },
+          ...AGENT_PROP,
+        },
+      },
     },
     {
       name: "board_handoffs",
-      description: "Handoffs left FOR you — the work another agent passed to you, with context and open questions.",
-      inputSchema: { type: "object", properties: { ...AGENT_PROP } }
+      description:
+        "Handoffs left FOR you — the work another agent passed to you, with context and open questions.",
+      inputSchema: { type: "object", properties: { ...AGENT_PROP } },
     },
     {
       name: "board_decision",
-      description: "Record a decision and its rationale so other agents see what was decided and why.",
+      description:
+        "Record a decision and its rationale so other agents see what was decided and why.",
       inputSchema: {
         type: "object",
-        properties: { title: { type: "string" }, rationale: { type: "string" }, ...AGENT_PROP },
-        required: ["title"]
-      }
+        properties: {
+          title: { type: "string" },
+          rationale: { type: "string" },
+          ...AGENT_PROP,
+        },
+        required: ["title"],
+      },
     },
     {
       name: "board_evidence",
-      description: "Attach evidence (file path, URL, log, test run) supporting some work.",
+      description:
+        "Attach evidence (file path, URL, log, test run) supporting some work.",
       inputSchema: {
         type: "object",
         properties: {
           ref: { type: "string" },
           note: { type: "string" },
-          target: { type: "string", description: "what it supports, e.g. task:auth-mw" },
-          ...AGENT_PROP
+          target: {
+            type: "string",
+            description: "what it supports, e.g. task:auth-mw",
+          },
+          ...AGENT_PROP,
         },
-        required: ["ref"]
-      }
+        required: ["ref"],
+      },
     },
     {
       name: "board_file_changed",
@@ -145,29 +171,39 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: "object",
         properties: {
           path: { type: "string" },
-          change: { type: "string", enum: ["added", "modified", "deleted"], default: "modified" },
+          change: {
+            type: "string",
+            enum: ["added", "modified", "deleted"],
+            default: "modified",
+          },
           task: { type: "string" },
-          ...AGENT_PROP
+          ...AGENT_PROP,
         },
-        required: ["path"]
-      }
+        required: ["path"],
+      },
     },
     {
       name: "board_risk",
-      description: "Flag an open risk the next agent should know before acting.",
+      description:
+        "Flag an open risk the next agent should know before acting.",
       inputSchema: {
         type: "object",
         properties: {
           title: { type: "string" },
-          severity: { type: "string", enum: ["low", "medium", "high"], default: "medium" },
-          ...AGENT_PROP
+          severity: {
+            type: "string",
+            enum: ["low", "medium", "high"],
+            default: "medium",
+          },
+          ...AGENT_PROP,
         },
-        required: ["title"]
-      }
+        required: ["title"],
+      },
     },
     {
       name: "board_handoff",
-      description: "Hand off work to another agent with a summary of the state at handoff.",
+      description:
+        "Hand off work to another agent with a summary of the state at handoff.",
       inputSchema: {
         type: "object",
         properties: {
@@ -177,21 +213,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           relatedFiles: { type: "array", items: { type: "string" } },
           openQuestions: { type: "array", items: { type: "string" } },
           task: { type: "string" },
-          ...AGENT_PROP
+          ...AGENT_PROP,
         },
-        required: ["to", "summary"]
-      }
+        required: ["to", "summary"],
+      },
     },
     {
       name: "session_start",
       description:
         "Start an execution session. Subsequent writes and links attribute to it. Captures machine, working directory, git branch, and repository.",
-      inputSchema: { type: "object", properties: { label: { type: "string" }, ...AGENT_PROP } }
+      inputSchema: {
+        type: "object",
+        properties: { label: { type: "string" }, ...AGENT_PROP },
+      },
     },
     {
       name: "session_stop",
       description: "Close the active session (or a specific one).",
-      inputSchema: { type: "object", properties: { session: { type: "string" }, ...AGENT_PROP } }
+      inputSchema: {
+        type: "object",
+        properties: { session: { type: "string" }, ...AGENT_PROP },
+      },
     },
     {
       name: "board_link",
@@ -200,17 +242,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: {
-          rev: { type: "string", description: "commit/revision, defaults to HEAD" },
+          rev: {
+            type: "string",
+            description: "commit/revision, defaults to HEAD",
+          },
           actorType: { type: "string", enum: ["human", "ai"], default: "ai" },
           name: { type: "string", description: "explicit actor name" },
           writeNote: { type: "boolean", default: false },
-          ...AGENT_PROP
-        }
-      }
+          ...AGENT_PROP,
+        },
+      },
     },
     {
       name: "board_attribute",
-      description: "Record a single attribution (commit + optional file) to a human or AI actor.",
+      description:
+        "Record a single attribution (commit + optional file) to a human or AI actor.",
       inputSchema: {
         type: "object",
         properties: {
@@ -218,30 +264,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           file: { type: "string" },
           actorType: { type: "string", enum: ["human", "ai"], default: "ai" },
           name: { type: "string" },
-          ...AGENT_PROP
+          ...AGENT_PROP,
         },
-        required: ["rev"]
-      }
+        required: ["rev"],
+      },
     },
     {
       name: "board_review",
-      description: "Record who reviewed a commit and the outcome (human or AI reviewer).",
+      description:
+        "Record who reviewed a commit and the outcome (human or AI reviewer).",
       inputSchema: {
         type: "object",
         properties: {
           rev: { type: "string" },
-          reviewerType: { type: "string", enum: ["human", "ai"], default: "human" },
+          reviewerType: {
+            type: "string",
+            enum: ["human", "ai"],
+            default: "human",
+          },
           name: { type: "string" },
           outcome: {
             type: "string",
             enum: ["approved", "changes-requested", "rejected", "commented"],
-            default: "approved"
+            default: "approved",
           },
           note: { type: "string" },
-          ...AGENT_PROP
+          ...AGENT_PROP,
         },
-        required: ["rev"]
-      }
+        required: ["rev"],
+      },
     },
     {
       name: "board_who",
@@ -250,18 +301,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: { file: { type: "string" }, line: { type: "number" } },
-        required: ["file"]
-      }
+        required: ["file"],
+      },
     },
     {
       name: "board_explain",
-      description: "Explain a commit: its AI attribution, reviews, and related decisions.",
-      inputSchema: { type: "object", properties: { rev: { type: "string", description: "defaults to HEAD" } } }
+      description:
+        "Explain a commit: its AI attribution, reviews, and related decisions.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          rev: { type: "string", description: "defaults to HEAD" },
+        },
+      },
     },
     {
       name: "board_unreviewed",
-      description: "List AI-produced commits that have never been reviewed by a human.",
-      inputSchema: { type: "object", properties: {} }
+      description:
+        "List AI-produced commits that have never been reviewed by a human.",
+      inputSchema: { type: "object", properties: {} },
     },
     {
       name: "board_check",
@@ -270,12 +328,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: {
-          range: { type: "string", description: "commit range, e.g. main..HEAD (default: all attributed commits)" },
-          requireHumanReview: { type: "boolean", description: "fail if an AI commit lacks a human review" },
-          requireAttribution: { type: "boolean", description: "fail if a scoped commit has no attribution" },
-          verifyChain: { type: "boolean", description: "fail if the timeline hash chain is broken" }
-        }
-      }
+          range: {
+            type: "string",
+            description:
+              "commit range, e.g. main..HEAD (default: all attributed commits)",
+          },
+          requireHumanReview: {
+            type: "boolean",
+            description: "fail if an AI commit lacks a human review",
+          },
+          requireAttribution: {
+            type: "boolean",
+            description: "fail if a scoped commit has no attribution",
+          },
+          verifyChain: {
+            type: "boolean",
+            description: "fail if the timeline hash chain is broken",
+          },
+        },
+      },
     },
     {
       name: "board_export",
@@ -283,22 +354,39 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         "Export a portable attribution bundle (attributions, reviews, sessions, decisions) for a commit range, so attribution survives push/PR into a team board or CI.",
       inputSchema: {
         type: "object",
-        properties: { range: { type: "string", description: "commit range (default: all attributed commits)" } }
-      }
+        properties: {
+          range: {
+            type: "string",
+            description: "commit range (default: all attributed commits)",
+          },
+        },
+      },
     },
     {
       name: "board_import",
-      description: "Import an attribution bundle (as produced by board_export) into this board. Idempotent.",
+      description:
+        "Import an attribution bundle (as produced by board_export) into this board. Idempotent.",
       inputSchema: {
         type: "object",
-        properties: { bundle: { type: "object", description: "the bundle object from board_export" } },
-        required: ["bundle"]
-      }
+        properties: {
+          bundle: {
+            type: "object",
+            description: "the bundle object from board_export",
+          },
+        },
+        required: ["bundle"],
+      },
     },
     {
       name: "board_trailers",
-      description: "Git trailer lines encoding a commit's attribution, for embedding in a commit message.",
-      inputSchema: { type: "object", properties: { rev: { type: "string", description: "defaults to HEAD" } } }
+      description:
+        "Git trailer lines encoding a commit's attribution, for embedding in a commit message.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          rev: { type: "string", description: "defaults to HEAD" },
+        },
+      },
     },
     {
       name: "board_since",
@@ -307,26 +395,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: {
-          afterSeq: { type: "number", description: "return events with seq greater than this" },
-          forAgent: { type: "string", description: "filter to messages/handoffs/conflicts for this agent" }
+          afterSeq: {
+            type: "number",
+            description: "return events with seq greater than this",
+          },
+          forAgent: {
+            type: "string",
+            description: "filter to messages/handoffs/conflicts for this agent",
+          },
         },
-        required: ["afterSeq"]
-      }
+        required: ["afterSeq"],
+      },
     },
     {
       name: "board_sign",
-      description: "Sign the current timeline head with the active session's key (attests board state through the head seq).",
-      inputSchema: { type: "object", properties: { ...AGENT_PROP } }
+      description:
+        "Sign the current timeline head with the active session's key (attests board state through the head seq).",
+      inputSchema: { type: "object", properties: { ...AGENT_PROP } },
     },
     {
       name: "board_trust",
-      description: "Show signature trust: which sessions have signed the timeline and whether each signature is valid and still current.",
-      inputSchema: { type: "object", properties: {} }
+      description:
+        "Show signature trust: which sessions have signed the timeline and whether each signature is valid and still current.",
+      inputSchema: { type: "object", properties: {} },
     },
     {
       name: "board_report",
-      description: "Accountability scorecard: review coverage, AI/human ratio, per-agent breakdown, session and risk counts.",
-      inputSchema: { type: "object", properties: {} }
+      description:
+        "Accountability scorecard: review coverage, AI/human ratio, per-agent breakdown, session and risk counts.",
+      inputSchema: { type: "object", properties: {} },
     },
     {
       name: "board_blame",
@@ -335,13 +432,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: { file: { type: "string" }, line: { type: "number" } },
-        required: ["file", "line"]
-      }
+        required: ["file", "line"],
+      },
     },
     {
       name: "board_heartbeat",
-      description: "Stamp the active session as alive (real-time liveness, so other agents can tell active from stale).",
-      inputSchema: { type: "object", properties: { ...AGENT_PROP } }
+      description:
+        "Stamp the active session as alive (real-time liveness, so other agents can tell active from stale).",
+      inputSchema: { type: "object", properties: { ...AGENT_PROP } },
     },
     {
       name: "board_prune",
@@ -349,9 +447,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         "Retention: delete messages/evidence/file-change rows created before an ISO time. The audit timeline is never pruned.",
       inputSchema: {
         type: "object",
-        properties: { before: { type: "string", description: "ISO timestamp" } },
-        required: ["before"]
-      }
+        properties: {
+          before: { type: "string", description: "ISO timestamp" },
+        },
+        required: ["before"],
+      },
     },
     {
       name: "board_redact",
@@ -360,29 +460,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: { seq: { type: "number" }, reason: { type: "string" } },
-        required: ["seq"]
-      }
+        required: ["seq"],
+      },
     },
     {
       name: "board_ingest",
       description:
         "Ingest a CLI transcript's content into the active session (file edits, decisions, notes). Format is one of: " +
-        ADAPTERS.join(", ") + ". Use 'generic' with our normalized event schema for any CLI.",
+        ADAPTERS.join(", ") +
+        ". Use 'generic' with our normalized event schema for any CLI.",
       inputSchema: {
         type: "object",
         properties: {
           content: { type: "string", description: "raw transcript content" },
-          format: { type: "string", enum: ADAPTERS, default: "generic" }
+          format: { type: "string", enum: ADAPTERS, default: "generic" },
         },
-        required: ["content"]
-      }
-    }
-  ]
+        required: ["content"],
+      },
+    },
+  ],
 }));
 
 /** Coerce an optional numeric arg to a non-negative integer, or a fallback. */
 function intArg(value: unknown, fallback: number): number {
-  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  const n =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : NaN;
   return Number.isInteger(n) && n >= 0 ? n : fallback;
 }
 
@@ -395,14 +501,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return handleTool(name, args, actor);
   } catch (err) {
     // Never let a malformed request crash the server; surface a clean error.
-    return { isError: true, ...text(`Error in ${name}: ${err instanceof Error ? err.message : String(err)}`) };
+    return {
+      isError: true,
+      ...text(
+        `Error in ${name}: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    };
   }
 });
 
 function handleTool(name: string, args: Record<string, any>, actor: string) {
   switch (name) {
     case "board_status":
-      return text(withBoard((b) => ({ ...b.status(actor), chain: b.verifyChain() })));
+      return text(
+        withBoard((b) => ({ ...b.status(actor), chain: b.verifyChain() })),
+      );
 
     case "board_timeline":
       return text(withBoard((b) => b.timeline(intArg(args.limit, 30))));
@@ -415,9 +528,12 @@ function handleTool(name: string, args: Record<string, any>, actor: string) {
         withBoard((b) => {
           const r = b.claim(actor, String(args.key), args.title ?? null);
           return r.conflict
-            ? { ...r, warning: `Task "${args.key}" is also held by ${r.conflict}.` }
+            ? {
+                ...r,
+                warning: `Task "${args.key}" is also held by ${r.conflict}.`,
+              }
             : r;
-        })
+        }),
       );
 
     case "board_message": {
@@ -427,7 +543,10 @@ function handleTool(name: string, args: Record<string, any>, actor: string) {
 
     case "board_inbox":
       return text(
-        withBoard((b) => ({ messages: b.inbox(actor, Boolean(args.includeRead)), handoffs: b.handoffsFor(actor) }))
+        withBoard((b) => ({
+          messages: b.inbox(actor, Boolean(args.includeRead)),
+          handoffs: b.handoffsFor(actor),
+        })),
       );
 
     case "board_handoffs":
@@ -440,14 +559,21 @@ function handleTool(name: string, args: Record<string, any>, actor: string) {
             rationale: args.rationale ?? null,
             evidence: args.evidence ?? null,
             relatedCommits: args.relatedCommits ?? [],
-            relatedTasks: args.relatedTasks ?? []
-          })
-        )
+            relatedTasks: args.relatedTasks ?? [],
+          }),
+        ),
       );
 
     case "board_evidence":
       return text(
-        withBoard((b) => b.evidence(actor, String(args.ref), args.note ?? null, args.target ?? null))
+        withBoard((b) =>
+          b.evidence(
+            actor,
+            String(args.ref),
+            args.note ?? null,
+            args.target ?? null,
+          ),
+        ),
       );
 
     case "board_file_changed":
@@ -457,16 +583,31 @@ function handleTool(name: string, args: Record<string, any>, actor: string) {
           const others = taskKey
             ? b.filesForTask(taskKey).filter((f) => f.agentId !== actor)
             : [];
-          const fc = b.fileChanged(actor, String(args.path), (args.change ?? "modified") as FileChangeKind, taskKey);
+          const fc = b.fileChanged(
+            actor,
+            String(args.path),
+            (args.change ?? "modified") as FileChangeKind,
+            taskKey,
+          );
           return others.length > 0
-            ? { file: fc, warning: `${others.length} change(s) by other agents on task "${taskKey}".`, others }
+            ? {
+                file: fc,
+                warning: `${others.length} change(s) by other agents on task "${taskKey}".`,
+                others,
+              }
             : { file: fc };
-        })
+        }),
       );
 
     case "board_risk":
       return text(
-        withBoard((b) => b.risk(actor, String(args.title), (args.severity ?? "medium") as RiskSeverity))
+        withBoard((b) =>
+          b.risk(
+            actor,
+            String(args.title),
+            (args.severity ?? "medium") as RiskSeverity,
+          ),
+        ),
       );
 
     case "board_handoff":
@@ -476,16 +617,21 @@ function handleTool(name: string, args: Record<string, any>, actor: string) {
             context: args.context ?? null,
             relatedFiles: args.relatedFiles ?? [],
             openQuestions: args.openQuestions ?? [],
-            taskKey: args.task ?? null
-          })
-        )
+            taskKey: args.task ?? null,
+          }),
+        ),
       );
 
     case "session_start":
       return text(withBoard((b) => b.startSession(args.label ?? null)));
 
     case "session_stop":
-      return text(withBoard((b) => b.stopSession(args.session ?? undefined) ?? "No active session."));
+      return text(
+        withBoard(
+          (b) =>
+            b.stopSession(args.session ?? undefined) ?? "No active session.",
+        ),
+      );
 
     case "board_link":
       return text(
@@ -493,10 +639,10 @@ function handleTool(name: string, args: Record<string, any>, actor: string) {
           const r = b.link(String(args.rev ?? "HEAD"), {
             actorType: args.actorType ?? "ai",
             actor: args.name,
-            writeNote: Boolean(args.writeNote)
+            writeNote: Boolean(args.writeNote),
           });
           return r ?? `Could not resolve '${args.rev ?? "HEAD"}'.`;
-        })
+        }),
       );
 
     case "board_attribute":
@@ -505,9 +651,9 @@ function handleTool(name: string, args: Record<string, any>, actor: string) {
           b.attribute(String(args.rev), {
             file: args.file ?? null,
             actorType: args.actorType ?? "ai",
-            actor: args.name
-          })
-        )
+            actor: args.name,
+          }),
+        ),
       );
 
     case "board_review":
@@ -517,68 +663,103 @@ function handleTool(name: string, args: Record<string, any>, actor: string) {
             reviewerType: args.reviewerType ?? "human",
             reviewer: args.name,
             outcome: args.outcome ?? "approved",
-            note: args.note ?? null
-          })
-        )
+            note: args.note ?? null,
+          }),
+        ),
       );
 
     case "board_who": {
       // Distinguish "no line given" from line 0/NaN — only blame on a valid
       // positive integer line.
       const line =
-        typeof args.line === "number" || typeof args.line === "string" ? Number(args.line) : NaN;
+        typeof args.line === "number" || typeof args.line === "string"
+          ? Number(args.line)
+          : NaN;
       const hasLine = Number.isInteger(line) && line > 0;
       return text(
         withBoard((b) =>
-          hasLine ? b.blame(String(args.file), line) ?? "No blame available." : b.whoTouched(String(args.file))
-        )
+          hasLine
+            ? (b.blame(String(args.file), line) ?? "No blame available.")
+            : b.whoTouched(String(args.file)),
+        ),
       );
     }
 
     case "board_explain":
-      return text(withBoard((b) => b.explain(String(args.rev ?? "HEAD")) ?? `Nothing known about '${args.rev ?? "HEAD"}'.`));
+      return text(
+        withBoard(
+          (b) =>
+            b.explain(String(args.rev ?? "HEAD")) ??
+            `Nothing known about '${args.rev ?? "HEAD"}'.`,
+        ),
+      );
 
     case "board_unreviewed":
       return text(withBoard((b) => b.unreviewedCommits()));
 
     case "board_check": {
       const commits = args.range ? git.revList(String(args.range)) : undefined;
-      const anyPolicy = args.requireHumanReview || args.requireAttribution || args.verifyChain;
+      const anyPolicy =
+        args.requireHumanReview || args.requireAttribution || args.verifyChain;
       return text(
         withBoard((b) =>
           b.check({
             commits,
-            requireHumanReview: anyPolicy ? Boolean(args.requireHumanReview) : true,
+            requireHumanReview: anyPolicy
+              ? Boolean(args.requireHumanReview)
+              : true,
             requireAttribution: Boolean(args.requireAttribution),
-            verifyChain: anyPolicy ? Boolean(args.verifyChain) : true
-          })
-        )
+            verifyChain: anyPolicy ? Boolean(args.verifyChain) : true,
+          }),
+        ),
       );
     }
 
     case "board_export":
-      return text(withBoard((b) => b.exportBundle(args.range ? git.revList(String(args.range)) : undefined)));
+      return text(
+        withBoard((b) =>
+          b.exportBundle(
+            args.range ? git.revList(String(args.range)) : undefined,
+          ),
+        ),
+      );
 
     case "board_import":
       return text(withBoard((b) => b.importBundle(args.bundle)));
 
     case "board_trailers":
-      return text(withBoard((b) => b.trailersFor(String(args.rev ?? "HEAD")).join("\n")));
+      return text(
+        withBoard((b) => b.trailersFor(String(args.rev ?? "HEAD")).join("\n")),
+      );
 
     case "board_since":
       return text(
         withBoard((b) => {
           const events = b.since(intArg(args.afterSeq, 0));
-          return { headSeq: b.headSeq(), events: args.forAgent ? b.notable(events, String(args.forAgent)) : events };
-        })
+          return {
+            headSeq: b.headSeq(),
+            events: args.forAgent
+              ? b.notable(events, String(args.forAgent))
+              : events,
+          };
+        }),
       );
 
     case "board_sign":
-      return text(withBoard((b) => b.signHead() ?? "Nothing to sign (no active session, missing key, or empty board)."));
+      return text(
+        withBoard(
+          (b) =>
+            b.signHead() ??
+            "Nothing to sign (no active session, missing key, or empty board).",
+        ),
+      );
 
     case "board_trust":
       return text(
-        withBoard((b) => ({ signedThrough: b.signedThrough(), signatures: b.verifySignatures() }))
+        withBoard((b) => ({
+          signedThrough: b.signedThrough(),
+          signatures: b.verifySignatures(),
+        })),
       );
 
     case "board_report":
@@ -600,7 +781,13 @@ function handleTool(name: string, args: Record<string, any>, actor: string) {
       if (seq < 1) {
         return text("seq must be a positive integer.");
       }
-      return text(withBoard((b) => (b.redact(seq, args.reason ?? null) ? `Redacted #${seq}.` : `No timeline entry #${seq}.`)));
+      return text(
+        withBoard((b) =>
+          b.redact(seq, args.reason ?? null)
+            ? `Redacted #${seq}.`
+            : `No timeline entry #${seq}.`,
+        ),
+      );
     }
 
     case "board_ingest": {
@@ -617,7 +804,12 @@ function handleTool(name: string, args: Record<string, any>, actor: string) {
       if (line < 1) {
         return text("line must be a positive integer.");
       }
-      return text(withBoard((b) => b.blameNarrative(String(args.file), line) ?? "No blame available."));
+      return text(
+        withBoard(
+          (b) =>
+            b.blameNarrative(String(args.file), line) ?? "No blame available.",
+        ),
+      );
     }
 
     default:

@@ -64,7 +64,9 @@ describe("heartbeat & liveness", () => {
     const dbPath = b.config.dbPath;
     b.close();
     const raw = new Database(dbPath);
-    raw.prepare("UPDATE sessions SET last_heartbeat = ? WHERE id = ?").run("2000-01-01T00:00:00Z", s.id);
+    raw
+      .prepare("UPDATE sessions SET last_heartbeat = ? WHERE id = ?")
+      .run("2000-01-01T00:00:00Z", s.id);
     raw.close();
 
     const b2 = openBoard(dir.path, { agent: "claude" });
@@ -84,7 +86,9 @@ describe("heartbeat & liveness", () => {
     const b = openBoard(dir.path, { agent: "codex" });
     b.startSession();
     const editors = b.activeEditorsOfFile("shared.ts", null);
-    expect(editors.some((e) => e.agent === "claude" && e.sessionId === sa.id)).toBe(true);
+    expect(
+      editors.some((e) => e.agent === "claude" && e.sessionId === sa.id),
+    ).toBe(true);
     b.close();
   });
 });
@@ -110,7 +114,9 @@ describe("retention & redaction", () => {
     const raw = b.config.dbPath;
     b.close();
     const db = new Database(raw);
-    const row = db.prepare("SELECT summary FROM timeline WHERE seq = ?").get(seq) as { summary: string };
+    const row = db
+      .prepare("SELECT summary FROM timeline WHERE seq = ?")
+      .get(seq) as { summary: string };
     expect(row.summary).toContain("hunter2");
     db.close();
   });

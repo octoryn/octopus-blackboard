@@ -11,7 +11,7 @@ describe("handoff visibility (surfaced by the two-agent demo)", () => {
   it("a handoff to an agent is retrievable by that agent", () => {
     const claude = openBoard(dir.path, { agent: "claude" });
     claude.handoff("claude", "codex", "auth done, rate limiter next", {
-      openQuestions: ["cap at 5/min?"]
+      openQuestions: ["cap at 5/min?"],
     });
     claude.close();
 
@@ -52,7 +52,9 @@ describe("blame is file-scoped (surfaced by the demo's double attribution)", () 
 
     const blamed = b.blame("auth.ts", 2)!;
     // Only the auth.ts attribution, not the sibling db.ts one.
-    expect(blamed.attributions.every((a) => a.file === "auth.ts" || a.file === null)).toBe(true);
+    expect(
+      blamed.attributions.every((a) => a.file === "auth.ts" || a.file === null),
+    ).toBe(true);
     expect(blamed.attributions.some((a) => a.file === "db.ts")).toBe(false);
 
     const narrative = b.blameNarrative("auth.ts", 2)!;

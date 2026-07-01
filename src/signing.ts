@@ -1,4 +1,10 @@
-import { createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from "node:crypto";
+import {
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  sign,
+  verify,
+} from "node:crypto";
 
 /**
  * Minimal session signing (v0). Each session gets an Ed25519 keypair; the
@@ -18,7 +24,9 @@ export function generateSessionKeypair(): SessionKeypair {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   return {
     publicKeyPem: publicKey.export({ type: "spki", format: "pem" }).toString(),
-    privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" }).toString()
+    privateKeyPem: privateKey
+      .export({ type: "pkcs8", format: "pem" })
+      .toString(),
   };
 }
 
@@ -29,10 +37,19 @@ export function signHash(privateKeyPem: string, hash: string): string {
 }
 
 /** Verify a base64 signature over a hash against a PEM public key. */
-export function verifyHash(publicKeyPem: string, hash: string, signatureB64: string): boolean {
+export function verifyHash(
+  publicKeyPem: string,
+  hash: string,
+  signatureB64: string,
+): boolean {
   try {
     const key = createPublicKey(publicKeyPem);
-    return verify(null, Buffer.from(hash), key, Buffer.from(signatureB64, "base64"));
+    return verify(
+      null,
+      Buffer.from(hash),
+      key,
+      Buffer.from(signatureB64, "base64"),
+    );
   } catch {
     return false;
   }

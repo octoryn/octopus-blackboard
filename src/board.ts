@@ -4,7 +4,12 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { openDb } from "./db.js";
-import { loadConfig, type AgentIdentity, type BoardConfig, type ConfigOverrides } from "./config.js";
+import {
+  loadConfig,
+  type AgentIdentity,
+  type BoardConfig,
+  type ConfigOverrides,
+} from "./config.js";
 import * as git from "./git.js";
 import { generateSessionKeypair, signHash, verifyHash } from "./signing.js";
 import type { IngestEvent } from "./adapters.js";
@@ -26,7 +31,7 @@ import type {
   RiskSeverity,
   Session,
   Task,
-  TimelineEvent
+  TimelineEvent,
 } from "./types.js";
 
 const GENESIS_HASH = "0".repeat(64);
@@ -61,7 +66,8 @@ export interface ChainVerification {
   anchored: boolean;
 }
 
-export type PolicyViolationKind = "unreviewed" | "unattributed" | "chain-broken";
+export type PolicyViolationKind =
+  "unreviewed" | "unattributed" | "chain-broken";
 
 export interface PolicyViolation {
   kind: PolicyViolationKind;
@@ -105,14 +111,25 @@ export interface AttributionBundle {
 /** Aggregate scorecard for a board — the `report` view. */
 export interface Report {
   attributions: { total: number; ai: number; human: number };
-  commits: { total: number; aiProduced: number; humanReviewed: number; unreviewed: number };
+  commits: {
+    total: number;
+    aiProduced: number;
+    humanReviewed: number;
+    unreviewed: number;
+  };
   /**
    * Fraction (0..1) of AI-produced commits with an approved human review, or
    * `null` when there is no AI work to review (N/A — not 100%).
    */
   reviewCoverage: number | null;
   aiHumanRatio: { ai: number; human: number };
-  perAgent: { agent: string; actorType: string; attributions: number; commits: number; files: number }[];
+  perAgent: {
+    agent: string;
+    actorType: string;
+    attributions: number;
+    commits: number;
+    files: number;
+  }[];
   sessions: { total: number; open: number };
   risks: { open: number };
 }
@@ -136,13 +153,14 @@ export class Board {
     this.db = openDb(config.dbPath);
     // An explicit env/flag session wins; otherwise resolve the agent's active
     // session from the DB (set transactionally by session start/stop).
-    this.activeSession = config.sessionId ?? this.currentSessionFromDb(config.agent);
+    this.activeSession =
+      config.sessionId ?? this.currentSessionFromDb(config.agent);
   }
 
   private currentSessionFromDb(agent: string): string | null {
-    const row = this.db.prepare("SELECT session_id FROM current_sessions WHERE agent = ?").get(agent) as
-      | { session_id: string }
-      | undefined;
+    const row = this.db
+      .prepare("SELECT session_id FROM current_sessions WHERE agent = ?")
+      .get(agent) as { session_id: string } | undefined;
     return row?.session_id ?? null;
   }
 
@@ -165,7 +183,9 @@ export class Board {
     const row = this.db
       .prepare("SELECT seq, hash FROM timeline ORDER BY seq DESC LIMIT 1")
       .get() as { seq: number; hash: string } | undefined;
-    return row ? { seq: row.seq, hash: row.hash } : { seq: 0, hash: GENESIS_HASH };
+    return row
+      ? { seq: row.seq, hash: row.hash }
+      : { seq: 0, hash: GENESIS_HASH };
   }
 
   private static computeHash(e: {
@@ -190,7 +210,7 @@ export class Board {
       e.refId,
       e.summary,
       e.payload ?? null,
-      e.prevHash
+      e.prevHash,
     ]);
     return createHash("sha256").update(canonical).digest("hex");
   }
@@ -202,7 +222,7 @@ export class Board {
     summary: string,
     refTable: string | null,
     refId: string | null,
-    payload: unknown
+    payload: unknown,
   ): TimelineEvent {
     const head = this.headHash();
     const seq = head.seq + 1;
@@ -219,40 +239,48 @@ export class Board {
       summary,
       payload: payload ?? null,
       prevHash: head.hash,
-      hash: ""
+      hash: "",
     };
     event.hash = Board.computeHash(event);
     this.db
       .prepare(
         `INSERT INTO timeline (id, seq, at, actor, session_id, kind, ref_table, ref_id, summary, payload, prev_hash, hash)
-         VALUES (@id, @seq, @at, @actor, @sessionId, @kind, @refTable, @refId, @summary, @payload, @prevHash, @hash)`
+         VALUES (@id, @seq, @at, @actor, @sessionId, @kind, @refTable, @refId, @summary, @payload, @prevHash, @hash)`,
       )
       .run({
         ...event,
-        payload: event.payload === null ? null : JSON.stringify(event.payload)
+        payload: event.payload === null ? null : JSON.stringify(event.payload),
       });
     // Anchor the head (seq + hash) so tail truncation is detectable: deleting
     // the newest rows leaves an internally-consistent chain, but no longer
     // matches the recorded head. Same transaction as the insert.
     this.db
-      .prepare("INSERT INTO meta (key, value) VALUES ('head_seq', @seq), ('head_hash', @hash) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .prepare(
+        "INSERT INTO meta (key, value) VALUES ('head_seq', @seq), ('head_hash', @hash) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      )
       .run({ seq: String(event.seq), hash: event.hash });
     return event;
   }
 
   private headAnchor(): { seq: number; hash: string } | null {
     const rows = this.db
-      .prepare("SELECT key, value FROM meta WHERE key IN ('head_seq','head_hash')")
+      .prepare(
+        "SELECT key, value FROM meta WHERE key IN ('head_seq','head_hash')",
+      )
       .all() as { key: string; value: string }[];
     const map = new Map(rows.map((r) => [r.key, r.value]));
     const seq = map.get("head_seq");
     const hash = map.get("head_hash");
-    return seq !== undefined && hash !== undefined ? { seq: Number(seq), hash } : null;
+    return seq !== undefined && hash !== undefined
+      ? { seq: Number(seq), hash }
+      : null;
   }
 
   /** Re-walk the chain and confirm every hash links to its predecessor. */
   verifyChain(): ChainVerification {
-    const rows = this.db.prepare("SELECT * FROM timeline ORDER BY seq ASC").all() as any[];
+    const rows = this.db
+      .prepare("SELECT * FROM timeline ORDER BY seq ASC")
+      .all() as any[];
     const anchor = this.headAnchor();
     const anchored = anchor !== null;
     let prevHash = GENESIS_HASH;
@@ -261,7 +289,12 @@ export class Board {
       // Contiguity: seq must increment by exactly 1 (catches a missing middle
       // row even before the hash check).
       if (row.seq !== prevSeq + 1) {
-        return { ok: false, length: rows.length, brokenAtSeq: row.seq, anchored };
+        return {
+          ok: false,
+          length: rows.length,
+          brokenAtSeq: row.seq,
+          anchored,
+        };
       }
       const recomputed = Board.computeHash({
         seq: row.seq,
@@ -273,10 +306,15 @@ export class Board {
         refId: row.ref_id,
         summary: row.summary,
         payload: row.payload === null ? null : JSON.parse(row.payload),
-        prevHash
+        prevHash,
       });
       if (row.prev_hash !== prevHash || row.hash !== recomputed) {
-        return { ok: false, length: rows.length, brokenAtSeq: row.seq, anchored };
+        return {
+          ok: false,
+          length: rows.length,
+          brokenAtSeq: row.seq,
+          anchored,
+        };
       }
       prevHash = row.hash;
       prevSeq = row.seq;
@@ -287,9 +325,15 @@ export class Board {
     // so callers don't present it as a clean pass.
     if (anchor) {
       const lastSeq = rows.length > 0 ? rows[rows.length - 1].seq : 0;
-      const lastHash = rows.length > 0 ? rows[rows.length - 1].hash : GENESIS_HASH;
+      const lastHash =
+        rows.length > 0 ? rows[rows.length - 1].hash : GENESIS_HASH;
       if (lastSeq !== anchor.seq || lastHash !== anchor.hash) {
-        return { ok: false, length: rows.length, brokenAtSeq: anchor.seq, anchored };
+        return {
+          ok: false,
+          length: rows.length,
+          brokenAtSeq: anchor.seq,
+          anchored,
+        };
       }
     }
     return { ok: true, length: rows.length, brokenAtSeq: null, anchored };
@@ -311,9 +355,11 @@ export class Board {
    *  behind `watch`/`subscribe`. Passive: callers poll; the board never pushes. */
   since(afterSeq: number): TimelineEvent[] {
     return this.applyRedactions(
-      (this.db.prepare("SELECT * FROM timeline WHERE seq > ? ORDER BY seq ASC").all(afterSeq) as any[]).map(
-        rowToTimeline
-      )
+      (
+        this.db
+          .prepare("SELECT * FROM timeline WHERE seq > ? ORDER BY seq ASC")
+          .all(afterSeq) as any[]
+      ).map(rowToTimeline),
     );
   }
 
@@ -338,9 +384,9 @@ export class Board {
           if (!e.refId) {
             return false;
           }
-          const row = this.db.prepare("SELECT to_agent FROM handoffs WHERE id = ?").get(e.refId) as
-            | { to_agent: string }
-            | undefined;
+          const row = this.db
+            .prepare("SELECT to_agent FROM handoffs WHERE id = ?")
+            .get(e.refId) as { to_agent: string } | undefined;
           return row?.to_agent === agent;
         }
         default:
@@ -358,10 +404,12 @@ export class Board {
    * with null, so a later bare touch cannot erase identity.
    */
   ensureAgent(name: string, identity?: Partial<AgentIdentity>): Agent {
-    const id0 = identity ?? (name === this.config.agent ? this.config.identity : undefined);
-    const existing = this.db.prepare("SELECT * FROM agents WHERE name = ?").get(name) as
-      | any
-      | undefined;
+    const id0 =
+      identity ??
+      (name === this.config.agent ? this.config.identity : undefined);
+    const existing = this.db
+      .prepare("SELECT * FROM agents WHERE name = ?")
+      .get(name) as any | undefined;
     const at = now();
     if (existing) {
       this.db
@@ -369,7 +417,7 @@ export class Board {
           `UPDATE agents SET last_seen = ?,
              kind = COALESCE(?, kind), provider = COALESCE(?, provider),
              model = COALESCE(?, model), cli = COALESCE(?, cli), version = COALESCE(?, version)
-           WHERE id = ?`
+           WHERE id = ?`,
         )
         .run(
           at,
@@ -378,9 +426,11 @@ export class Board {
           id0?.model ?? null,
           id0?.cli ?? null,
           id0?.version ?? null,
-          existing.id
+          existing.id,
         );
-      return rowToAgent(this.db.prepare("SELECT * FROM agents WHERE id = ?").get(existing.id));
+      return rowToAgent(
+        this.db.prepare("SELECT * FROM agents WHERE id = ?").get(existing.id),
+      );
     }
     const agent: Agent = {
       id: id(),
@@ -391,18 +441,20 @@ export class Board {
       cli: id0?.cli ?? null,
       version: id0?.version ?? null,
       createdAt: at,
-      lastSeen: at
+      lastSeen: at,
     };
     this.db
       .prepare(
-        "INSERT INTO agents (id, name, kind, provider, model, cli, version, created_at, last_seen) VALUES (@id, @name, @kind, @provider, @model, @cli, @version, @createdAt, @lastSeen)"
+        "INSERT INTO agents (id, name, kind, provider, model, cli, version, created_at, last_seen) VALUES (@id, @name, @kind, @provider, @model, @cli, @version, @createdAt, @lastSeen)",
       )
       .run(agent);
     return agent;
   }
 
   getAgent(name: string): Agent | undefined {
-    const row = this.db.prepare("SELECT * FROM agents WHERE name = ?").get(name);
+    const row = this.db
+      .prepare("SELECT * FROM agents WHERE name = ?")
+      .get(name);
     return row ? rowToAgent(row) : undefined;
   }
 
@@ -433,19 +485,21 @@ export class Board {
         publicKey: keypair.publicKeyPem,
         lastHeartbeat: at,
         startedAt: at,
-        finishedAt: null
+        finishedAt: null,
       };
       this.db
         .prepare(
           `INSERT INTO sessions (id, agent_name, label, machine, working_directory, git_branch, repository, public_key, last_heartbeat, started_at, finished_at)
-           VALUES (@id, @agentName, @label, @machine, @workingDirectory, @gitBranch, @repository, @publicKey, @lastHeartbeat, @startedAt, @finishedAt)`
+           VALUES (@id, @agentName, @label, @machine, @workingDirectory, @gitBranch, @repository, @publicKey, @lastHeartbeat, @startedAt, @finishedAt)`,
         )
         .run(session);
       // Stamp subsequent events (including this one) with the new session, and
       // record the pointer transactionally so concurrent CLIs can't race it.
       this.activeSession = session.id;
       this.db
-        .prepare("INSERT OR REPLACE INTO current_sessions (agent, session_id) VALUES (?, ?)")
+        .prepare(
+          "INSERT OR REPLACE INTO current_sessions (agent, session_id) VALUES (?, ?)",
+        )
         .run(this.config.agent, session.id);
       this.append(
         this.config.agent,
@@ -453,7 +507,7 @@ export class Board {
         `session started${label ? ` (${label})` : ""}`,
         "sessions",
         session.id,
-        { machine: session.machine, gitBranch: session.gitBranch }
+        { machine: session.machine, gitBranch: session.gitBranch },
       );
       return session;
     });
@@ -470,7 +524,10 @@ export class Board {
     const path = this.keyPath(sessionId);
     // 0700 dir + 0600 file: private keys are not listable/readable by other
     // local users.
-    mkdirSync(join(this.config.boardDir, "keys"), { recursive: true, mode: 0o700 });
+    mkdirSync(join(this.config.boardDir, "keys"), {
+      recursive: true,
+      mode: 0o700,
+    });
     writeFileSync(path, privateKeyPem, { mode: 0o600 });
   }
 
@@ -484,7 +541,9 @@ export class Board {
    * signature attests "this session vouches for board state through seq N".
    * Recorded in the `signatures` table (not the chain, so the head stays put).
    */
-  signHead(sessionId?: string): { headSeq: number; headHash: string } | undefined {
+  signHead(
+    sessionId?: string,
+  ): { headSeq: number; headHash: string } | undefined {
     const sid = sessionId ?? this.activeSession;
     if (!sid) {
       return undefined;
@@ -502,7 +561,7 @@ export class Board {
     this.db
       .prepare(
         `INSERT INTO signatures (id, session_id, head_seq, head_hash, signature, public_key, created_at)
-         VALUES (@id, @sessionId, @headSeq, @headHash, @signature, @publicKey, @createdAt)`
+         VALUES (@id, @sessionId, @headSeq, @headHash, @signature, @publicKey, @createdAt)`,
       )
       .run({
         id: id(),
@@ -511,7 +570,7 @@ export class Board {
         headHash: head.hash,
         signature,
         publicKey: session.publicKey,
-        createdAt: now()
+        createdAt: now(),
       });
     return { headSeq: head.seq, headHash: head.hash };
   }
@@ -529,7 +588,9 @@ export class Board {
     current: boolean;
     at: string;
   }[] {
-    const rows = this.db.prepare("SELECT * FROM signatures ORDER BY head_seq ASC").all() as any[];
+    const rows = this.db
+      .prepare("SELECT * FROM signatures ORDER BY head_seq ASC")
+      .all() as any[];
     if (rows.length === 0) {
       return [];
     }
@@ -540,10 +601,12 @@ export class Board {
     const verified = chain ?? this.verifyChain();
     return rows.map((r) => {
       const valid = verifyHash(r.public_key, r.head_hash, r.signature);
-      const row = this.db.prepare("SELECT hash FROM timeline WHERE seq = ?").get(r.head_seq) as
-        | { hash: string }
-        | undefined;
-      const chainOkThroughHead = verified.ok || (verified.brokenAtSeq !== null && r.head_seq < verified.brokenAtSeq);
+      const row = this.db
+        .prepare("SELECT hash FROM timeline WHERE seq = ?")
+        .get(r.head_seq) as { hash: string } | undefined;
+      const chainOkThroughHead =
+        verified.ok ||
+        (verified.brokenAtSeq !== null && r.head_seq < verified.brokenAtSeq);
       const session = this.getSession(r.session_id);
       return {
         sessionId: r.session_id,
@@ -551,7 +614,7 @@ export class Board {
         headSeq: r.head_seq,
         valid,
         current: row?.hash === r.head_hash && chainOkThroughHead,
-        at: r.created_at
+        at: r.created_at,
       };
     });
   }
@@ -575,14 +638,25 @@ export class Board {
         return undefined;
       }
       const at = now();
-      this.db.prepare("UPDATE sessions SET finished_at = ? WHERE id = ?").run(at, target);
+      this.db
+        .prepare("UPDATE sessions SET finished_at = ? WHERE id = ?")
+        .run(at, target);
       this.activeSession = target;
       // Clear the pointer transactionally (only if it still points here, so a
       // concurrent new session for the same agent is not clobbered).
       this.db
-        .prepare("DELETE FROM current_sessions WHERE agent = ? AND session_id = ?")
+        .prepare(
+          "DELETE FROM current_sessions WHERE agent = ? AND session_id = ?",
+        )
         .run(existing.agentName ?? this.config.agent, target);
-      this.append(existing.agentName ?? this.config.agent, "session-stop", "session stopped", "sessions", target, null);
+      this.append(
+        existing.agentName ?? this.config.agent,
+        "session-stop",
+        "session stopped",
+        "sessions",
+        target,
+        null,
+      );
       return this.getSession(target);
     });
     const session = tx.immediate();
@@ -599,13 +673,17 @@ export class Board {
   }
 
   getSession(sessionId: string): Session | undefined {
-    const row = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
+    const row = this.db
+      .prepare("SELECT * FROM sessions WHERE id = ?")
+      .get(sessionId);
     return row ? rowToSession(row) : undefined;
   }
 
   listSessions(limit = 30): Session[] {
     return (
-      this.db.prepare("SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?").all(limit) as any[]
+      this.db
+        .prepare("SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?")
+        .all(limit) as any[]
     ).map(rowToSession);
   }
 
@@ -614,16 +692,20 @@ export class Board {
     return this.applyRedactions(
       (
         this.db
-          .prepare("SELECT * FROM timeline WHERE session_id = ? ORDER BY seq ASC")
+          .prepare(
+            "SELECT * FROM timeline WHERE session_id = ? ORDER BY seq ASC",
+          )
           .all(sessionId) as any[]
-      ).map(rowToTimeline)
+      ).map(rowToTimeline),
     );
   }
 
   listAgents(): Agent[] {
-    return (this.db.prepare("SELECT * FROM agents ORDER BY last_seen DESC").all() as any[]).map(
-      rowToAgent
-    );
+    return (
+      this.db
+        .prepare("SELECT * FROM agents ORDER BY last_seen DESC")
+        .all() as any[]
+    ).map(rowToAgent);
   }
 
   // --- writes (each is one transaction: entity + timeline entry) -------------
@@ -646,9 +728,9 @@ export class Board {
     const tx = this.db.transaction((): ClaimResult => {
       this.ensureAgent(actor);
       const at = now();
-      const existing = this.db.prepare("SELECT * FROM tasks WHERE key = ?").get(key) as
-        | any
-        | undefined;
+      const existing = this.db
+        .prepare("SELECT * FROM tasks WHERE key = ?")
+        .get(key) as any | undefined;
       let conflict: string | null = null;
       let task: Task;
       if (!existing) {
@@ -662,24 +744,30 @@ export class Board {
           claimedAt: at,
           releasedAt: null,
           createdAt: at,
-          updatedAt: at
+          updatedAt: at,
         };
         this.db
           .prepare(
             `INSERT INTO tasks (id, key, title, status, created_by, claimed_by, claimed_at, released_at, created_at, updated_at)
-             VALUES (@id, @key, @title, @status, @createdBy, @claimedBy, @claimedAt, @releasedAt, @createdAt, @updatedAt)`
+             VALUES (@id, @key, @title, @status, @createdBy, @claimedBy, @claimedAt, @releasedAt, @createdAt, @updatedAt)`,
           )
           .run(task);
       } else {
-        if (existing.claimed_by && existing.claimed_by !== actor && !existing.released_at) {
+        if (
+          existing.claimed_by &&
+          existing.claimed_by !== actor &&
+          !existing.released_at
+        ) {
           conflict = existing.claimed_by;
         }
         this.db
           .prepare(
-            "UPDATE tasks SET status = 'claimed', claimed_by = ?, claimed_at = ?, released_at = NULL, title = COALESCE(?, title), updated_at = ? WHERE key = ?"
+            "UPDATE tasks SET status = 'claimed', claimed_by = ?, claimed_at = ?, released_at = NULL, title = COALESCE(?, title), updated_at = ? WHERE key = ?",
           )
           .run(actor, at, title, at, key);
-        task = rowToTask(this.db.prepare("SELECT * FROM tasks WHERE key = ?").get(key));
+        task = rowToTask(
+          this.db.prepare("SELECT * FROM tasks WHERE key = ?").get(key),
+        );
       }
       const summary = conflict
         ? `claimed "${key}" (CONFLICT: also held by ${conflict})`
@@ -695,19 +783,23 @@ export class Board {
     const tx = this.db.transaction((): Task | undefined => {
       this.ensureAgent(actor);
       const at = now();
-      const existing = this.db.prepare("SELECT * FROM tasks WHERE key = ?").get(key) as
-        | any
-        | undefined;
+      const existing = this.db
+        .prepare("SELECT * FROM tasks WHERE key = ?")
+        .get(key) as any | undefined;
       if (!existing) {
         return undefined;
       }
       this.db
         .prepare(
-          "UPDATE tasks SET status = 'open', released_at = ?, claimed_by = NULL, updated_at = ? WHERE key = ?"
+          "UPDATE tasks SET status = 'open', released_at = ?, claimed_by = NULL, updated_at = ? WHERE key = ?",
         )
         .run(at, at, key);
-      const task = rowToTask(this.db.prepare("SELECT * FROM tasks WHERE key = ?").get(key));
-      this.append(actor, "release", `released "${key}"`, "tasks", task.id, { key });
+      const task = rowToTask(
+        this.db.prepare("SELECT * FROM tasks WHERE key = ?").get(key),
+      );
+      this.append(actor, "release", `released "${key}"`, "tasks", task.id, {
+        key,
+      });
       return task;
     });
     return tx.immediate();
@@ -718,17 +810,23 @@ export class Board {
     const tx = this.db.transaction((): Task | undefined => {
       this.ensureAgent(actor);
       const at = now();
-      const existing = this.db.prepare("SELECT * FROM tasks WHERE key = ?").get(key) as
-        | any
-        | undefined;
+      const existing = this.db
+        .prepare("SELECT * FROM tasks WHERE key = ?")
+        .get(key) as any | undefined;
       if (!existing) {
         return undefined;
       }
       this.db
-        .prepare("UPDATE tasks SET status = 'done', updated_at = ? WHERE key = ?")
+        .prepare(
+          "UPDATE tasks SET status = 'done', updated_at = ? WHERE key = ?",
+        )
         .run(at, key);
-      const task = rowToTask(this.db.prepare("SELECT * FROM tasks WHERE key = ?").get(key));
-      this.append(actor, "complete", `completed "${key}"`, "tasks", task.id, { key });
+      const task = rowToTask(
+        this.db.prepare("SELECT * FROM tasks WHERE key = ?").get(key),
+      );
+      this.append(actor, "complete", `completed "${key}"`, "tasks", task.id, {
+        key,
+      });
       return task;
     });
     return tx.immediate();
@@ -736,10 +834,14 @@ export class Board {
 
   listTasks(status?: string): Task[] {
     const rows = status
-      ? (this.db.prepare("SELECT * FROM tasks WHERE status = ? ORDER BY updated_at DESC").all(
-          status
-        ) as any[])
-      : (this.db.prepare("SELECT * FROM tasks ORDER BY updated_at DESC").all() as any[]);
+      ? (this.db
+          .prepare(
+            "SELECT * FROM tasks WHERE status = ? ORDER BY updated_at DESC",
+          )
+          .all(status) as any[])
+      : (this.db
+          .prepare("SELECT * FROM tasks ORDER BY updated_at DESC")
+          .all() as any[]);
     return rows.map(rowToTask);
   }
 
@@ -757,15 +859,22 @@ export class Board {
         toAgent: to,
         body,
         createdAt: at,
-        readAt: null
+        readAt: null,
       };
       this.db
         .prepare(
-          "INSERT INTO messages (id, from_agent, to_agent, body, created_at, read_at) VALUES (@id, @fromAgent, @toAgent, @body, @createdAt, @readAt)"
+          "INSERT INTO messages (id, from_agent, to_agent, body, created_at, read_at) VALUES (@id, @fromAgent, @toAgent, @body, @createdAt, @readAt)",
         )
         .run(msg);
       const dest = to ? `→ ${to}` : "(broadcast)";
-      this.append(actor, "message", `message ${dest}: ${body}`, "messages", msg.id, { to });
+      this.append(
+        actor,
+        "message",
+        `message ${dest}: ${body}`,
+        "messages",
+        msg.id,
+        { to },
+      );
       return msg;
     });
     return tx.immediate();
@@ -787,7 +896,9 @@ export class Board {
   }
 
   markRead(messageId: string): void {
-    this.db.prepare("UPDATE messages SET read_at = ? WHERE id = ?").run(now(), messageId);
+    this.db
+      .prepare("UPDATE messages SET read_at = ? WHERE id = ?")
+      .run(now(), messageId);
   }
 
   decision(
@@ -798,7 +909,7 @@ export class Board {
       evidence?: string | null;
       relatedCommits?: string[];
       relatedTasks?: string[];
-    } = {}
+    } = {},
   ): Decision {
     const tx = this.db.transaction((): Decision => {
       this.ensureAgent(actor);
@@ -811,21 +922,21 @@ export class Board {
         evidence: opts.evidence ?? null,
         relatedCommits: opts.relatedCommits ?? [],
         relatedTasks: opts.relatedTasks ?? [],
-        createdAt: now()
+        createdAt: now(),
       };
       this.db
         .prepare(
           `INSERT INTO decisions (id, agent_id, session_id, title, rationale, evidence, related_commits, related_tasks, created_at)
-           VALUES (@id, @agentId, @sessionId, @title, @rationale, @evidence, @relatedCommits, @relatedTasks, @createdAt)`
+           VALUES (@id, @agentId, @sessionId, @title, @rationale, @evidence, @relatedCommits, @relatedTasks, @createdAt)`,
         )
         .run({
           ...dec,
           relatedCommits: JSON.stringify(dec.relatedCommits),
-          relatedTasks: JSON.stringify(dec.relatedTasks)
+          relatedTasks: JSON.stringify(dec.relatedTasks),
         });
       this.append(actor, "decision", `decided: ${title}`, "decisions", dec.id, {
         rationale: dec.rationale,
-        relatedCommits: dec.relatedCommits
+        relatedCommits: dec.relatedCommits,
       });
       return dec;
     });
@@ -844,27 +955,50 @@ export class Board {
       }
       return s.startsWith(sha) || sha.startsWith(s);
     };
-    return (this.db.prepare("SELECT * FROM decisions ORDER BY created_at DESC").all() as any[])
+    return (
+      this.db
+        .prepare("SELECT * FROM decisions ORDER BY created_at DESC")
+        .all() as any[]
+    )
       .map(rowToDecision)
       .filter((d) => d.relatedCommits.some((c) => matches(c, commitSha)));
   }
 
-  evidence(actor: string, ref: string, note: string | null = null, target: string | null = null): Evidence {
+  evidence(
+    actor: string,
+    ref: string,
+    note: string | null = null,
+    target: string | null = null,
+  ): Evidence {
     const tx = this.db.transaction((): Evidence => {
       this.ensureAgent(actor);
-      const ev: Evidence = { id: id(), agentId: actor, ref, note, target, createdAt: now() };
+      const ev: Evidence = {
+        id: id(),
+        agentId: actor,
+        ref,
+        note,
+        target,
+        createdAt: now(),
+      };
       this.db
         .prepare(
-          "INSERT INTO evidence (id, agent_id, ref, note, target, created_at) VALUES (@id, @agentId, @ref, @note, @target, @createdAt)"
+          "INSERT INTO evidence (id, agent_id, ref, note, target, created_at) VALUES (@id, @agentId, @ref, @note, @target, @createdAt)",
         )
         .run(ev);
-      this.append(actor, "evidence", `evidence: ${ref}`, "evidence", ev.id, { target });
+      this.append(actor, "evidence", `evidence: ${ref}`, "evidence", ev.id, {
+        target,
+      });
       return ev;
     });
     return tx.immediate();
   }
 
-  fileChanged(actor: string, path: string, change: FileChangeKind, taskKey: string | null = null): FileChange {
+  fileChanged(
+    actor: string,
+    path: string,
+    change: FileChangeKind,
+    taskKey: string | null = null,
+  ): FileChange {
     const tx = this.db.transaction((): FileChange => {
       this.ensureAgent(actor);
       const fc: FileChange = {
@@ -874,14 +1008,16 @@ export class Board {
         path,
         change,
         taskKey,
-        createdAt: now()
+        createdAt: now(),
       };
       this.db
         .prepare(
-          "INSERT INTO files_changed (id, agent_id, session_id, path, change, task_key, created_at) VALUES (@id, @agentId, @sessionId, @path, @change, @taskKey, @createdAt)"
+          "INSERT INTO files_changed (id, agent_id, session_id, path, change, task_key, created_at) VALUES (@id, @agentId, @sessionId, @path, @change, @taskKey, @createdAt)",
         )
         .run(fc);
-      this.append(actor, "file", `${change}: ${path}`, "files_changed", fc.id, { taskKey });
+      this.append(actor, "file", `${change}: ${path}`, "files_changed", fc.id, {
+        taskKey,
+      });
       return fc;
     });
     return tx.immediate();
@@ -891,7 +1027,9 @@ export class Board {
   filesForTask(taskKey: string): FileChange[] {
     return (
       this.db
-        .prepare("SELECT * FROM files_changed WHERE task_key = ? ORDER BY created_at DESC")
+        .prepare(
+          "SELECT * FROM files_changed WHERE task_key = ? ORDER BY created_at DESC",
+        )
         .all(taskKey) as any[]
     ).map(rowToFileChange);
   }
@@ -905,14 +1043,21 @@ export class Board {
         title,
         severity,
         status: "open",
-        createdAt: now()
+        createdAt: now(),
       };
       this.db
         .prepare(
-          "INSERT INTO risks (id, agent_id, title, severity, status, created_at) VALUES (@id, @agentId, @title, @severity, @status, @createdAt)"
+          "INSERT INTO risks (id, agent_id, title, severity, status, created_at) VALUES (@id, @agentId, @title, @severity, @status, @createdAt)",
         )
         .run(r);
-      this.append(actor, "risk", `risk [${severity}]: ${title}`, "risks", r.id, null);
+      this.append(
+        actor,
+        "risk",
+        `risk [${severity}]: ${title}`,
+        "risks",
+        r.id,
+        null,
+      );
       return r;
     });
     return tx.immediate();
@@ -920,10 +1065,14 @@ export class Board {
 
   listRisks(status: string | null = "open"): Risk[] {
     const rows = status
-      ? (this.db.prepare("SELECT * FROM risks WHERE status = ? ORDER BY created_at DESC").all(
-          status
-        ) as any[])
-      : (this.db.prepare("SELECT * FROM risks ORDER BY created_at DESC").all() as any[]);
+      ? (this.db
+          .prepare(
+            "SELECT * FROM risks WHERE status = ? ORDER BY created_at DESC",
+          )
+          .all(status) as any[])
+      : (this.db
+          .prepare("SELECT * FROM risks ORDER BY created_at DESC")
+          .all() as any[]);
     return rows.map(rowToRisk);
   }
 
@@ -936,7 +1085,7 @@ export class Board {
       relatedFiles?: string[];
       openQuestions?: string[];
       taskKey?: string | null;
-    } = {}
+    } = {},
   ): Handoff {
     const tx = this.db.transaction((): Handoff => {
       this.ensureAgent(actor);
@@ -953,22 +1102,29 @@ export class Board {
         openQuestions: opts.openQuestions ?? [],
         taskKey: opts.taskKey ?? null,
         createdAt: now(),
-        acceptedAt: null
+        acceptedAt: null,
       };
       this.db
         .prepare(
           `INSERT INTO handoffs (id, from_agent, to_agent, from_session, to_session, summary, context, related_files, open_questions, task_key, created_at, accepted_at)
-           VALUES (@id, @fromAgent, @toAgent, @fromSession, @toSession, @summary, @context, @relatedFiles, @openQuestions, @taskKey, @createdAt, @acceptedAt)`
+           VALUES (@id, @fromAgent, @toAgent, @fromSession, @toSession, @summary, @context, @relatedFiles, @openQuestions, @taskKey, @createdAt, @acceptedAt)`,
         )
         .run({
           ...h,
           relatedFiles: JSON.stringify(h.relatedFiles),
-          openQuestions: JSON.stringify(h.openQuestions)
+          openQuestions: JSON.stringify(h.openQuestions),
         });
-      this.append(actor, "handoff", `handoff → ${to}: ${summary}`, "handoffs", h.id, {
-        taskKey: h.taskKey,
-        openQuestions: h.openQuestions
-      });
+      this.append(
+        actor,
+        "handoff",
+        `handoff → ${to}: ${summary}`,
+        "handoffs",
+        h.id,
+        {
+          taskKey: h.taskKey,
+          openQuestions: h.openQuestions,
+        },
+      );
       return h;
     });
     return tx.immediate();
@@ -993,7 +1149,7 @@ export class Board {
           provider: a?.provider ?? null,
           model: a?.model ?? null,
           cli: a?.cli ?? null,
-          sessionId
+          sessionId,
         };
       }
     }
@@ -1002,7 +1158,7 @@ export class Board {
       provider: this.config.identity.provider,
       model: this.config.identity.model,
       cli: this.config.identity.cli,
-      sessionId: this.activeSession
+      sessionId: this.activeSession,
     };
   }
 
@@ -1018,14 +1174,20 @@ export class Board {
       model?: string | null;
       cli?: string | null;
       sessionId?: string | null;
-    } = {}
+    } = {},
   ): Attribution {
     const sha = git.resolveRev(commit) ?? commit;
     const actorType = opts.actorType ?? "ai";
     const ident =
       actorType === "ai"
         ? this.identityForSession(opts.sessionId ?? this.activeSession)
-        : { actor: this.config.agent, provider: null, model: null, cli: null, sessionId: opts.sessionId ?? null };
+        : {
+            actor: this.config.agent,
+            provider: null,
+            model: null,
+            cli: null,
+            sessionId: opts.sessionId ?? null,
+          };
     const attr: Attribution = {
       id: id(),
       commit: sha,
@@ -1037,15 +1199,22 @@ export class Board {
       model: opts.model ?? ident.model,
       cli: opts.cli ?? ident.cli,
       sessionId: opts.sessionId ?? ident.sessionId,
-      createdAt: now()
+      createdAt: now(),
     };
     const tx = this.db.transaction(() => {
       this.insertAttribution(attr);
       const where = attr.file ? ` ${attr.file}` : "";
-      this.append(attr.actor, "attribution", `${attr.actorType} produced ${sha.slice(0, 8)}${where}`, "attributions", attr.id, {
-        commit: sha,
-        file: attr.file
-      });
+      this.append(
+        attr.actor,
+        "attribution",
+        `${attr.actorType} produced ${sha.slice(0, 8)}${where}`,
+        "attributions",
+        attr.id,
+        {
+          commit: sha,
+          file: attr.file,
+        },
+      );
     });
     tx.immediate();
     return attr;
@@ -1055,7 +1224,7 @@ export class Board {
     this.db
       .prepare(
         `INSERT INTO attributions (id, commit_sha, file, hunk, actor_type, actor, provider, model, cli, session_id, created_at)
-         VALUES (@id, @commit, @file, @hunk, @actorType, @actor, @provider, @model, @cli, @sessionId, @createdAt)`
+         VALUES (@id, @commit, @file, @hunk, @actorType, @actor, @provider, @model, @cli, @sessionId, @createdAt)`,
       )
       .run(attr);
   }
@@ -1068,19 +1237,32 @@ export class Board {
    */
   link(
     rev: string,
-    opts: { sessionId?: string | null; actorType?: ActorType; actor?: string; writeNote?: boolean } = {}
+    opts: {
+      sessionId?: string | null;
+      actorType?: ActorType;
+      actor?: string;
+      writeNote?: boolean;
+    } = {},
   ): { sha: string; files: string[]; count: number } | undefined {
     const sha = git.resolveRev(rev);
     if (!sha) {
       return undefined;
     }
     // Never attribute the board's own storage.
-    const files = git.filesInCommit(sha).filter((f) => !f.startsWith(".octoboard/"));
+    const files = git
+      .filesInCommit(sha)
+      .filter((f) => !f.startsWith(".octoboard/"));
     const actorType = opts.actorType ?? "ai";
     const ident =
       actorType === "ai"
         ? this.identityForSession(opts.sessionId ?? this.activeSession)
-        : { actor: opts.actor ?? this.config.agent, provider: null, model: null, cli: null, sessionId: opts.sessionId ?? null };
+        : {
+            actor: opts.actor ?? this.config.agent,
+            provider: null,
+            model: null,
+            cli: null,
+            sessionId: opts.sessionId ?? null,
+          };
     const targets = files.length > 0 ? files : [null];
     const tx = this.db.transaction(() => {
       for (const file of targets) {
@@ -1095,7 +1277,7 @@ export class Board {
           model: ident.model,
           cli: ident.cli,
           sessionId: ident.sessionId,
-          createdAt: now()
+          createdAt: now(),
         });
       }
       // A link event spans N attribution rows, so it references the commit
@@ -1106,13 +1288,16 @@ export class Board {
         `linked ${sha.slice(0, 8)} → ${actorType} ${opts.actor ?? ident.actor} (${targets.length} file${targets.length === 1 ? "" : "s"})`,
         "commit",
         sha,
-        { sha, files }
+        { sha, files },
       );
     });
     tx.immediate();
     if (opts.writeNote) {
       const label = `${ident.cli ?? ident.actor}${ident.model ? ` (${ident.model})` : ""}`;
-      git.writeNote(sha, `blackboard: produced by ${label}, session ${ident.sessionId ?? "n/a"}`);
+      git.writeNote(
+        sha,
+        `blackboard: produced by ${label}, session ${ident.sessionId ?? "n/a"}`,
+      );
     }
     return { sha, files, count: targets.length };
   }
@@ -1120,7 +1305,9 @@ export class Board {
   attributionsForCommit(commitSha: string): Attribution[] {
     return (
       this.db
-        .prepare("SELECT * FROM attributions WHERE commit_sha = ? ORDER BY created_at ASC")
+        .prepare(
+          "SELECT * FROM attributions WHERE commit_sha = ? ORDER BY created_at ASC",
+        )
         .all(commitSha) as any[]
     ).map(rowToAttribution);
   }
@@ -1128,7 +1315,9 @@ export class Board {
   attributionsForFile(file: string): Attribution[] {
     return (
       this.db
-        .prepare("SELECT * FROM attributions WHERE file = ? ORDER BY created_at DESC")
+        .prepare(
+          "SELECT * FROM attributions WHERE file = ? ORDER BY created_at DESC",
+        )
         .all(file) as any[]
     ).map(rowToAttribution);
   }
@@ -1139,7 +1328,10 @@ export class Board {
    * commit's attributions if none name the file. Used by `blame`, so tracing a
    * line doesn't surface attributions for the commit's other files.
    */
-  private attributionsForCommitFile(commitSha: string, file: string): Attribution[] {
+  private attributionsForCommitFile(
+    commitSha: string,
+    file: string,
+  ): Attribution[] {
     const all = this.attributionsForCommit(commitSha);
     const scoped = all.filter((a) => a.file === file || a.file === null);
     return scoped.length > 0 ? scoped : all;
@@ -1156,7 +1348,7 @@ export class Board {
       outcome?: ReviewOutcome;
       note?: string | null;
       sessionId?: string | null;
-    } = {}
+    } = {},
   ): Review {
     const sha = git.resolveRev(commit) ?? commit;
     const rev: Review = {
@@ -1167,13 +1359,13 @@ export class Board {
       sessionId: opts.sessionId ?? this.activeSession,
       outcome: opts.outcome ?? "approved",
       note: opts.note ?? null,
-      createdAt: now()
+      createdAt: now(),
     };
     const tx = this.db.transaction(() => {
       this.db
         .prepare(
           `INSERT INTO reviews (id, commit_sha, reviewer_type, reviewer, session_id, outcome, note, created_at)
-           VALUES (@id, @commit, @reviewerType, @reviewer, @sessionId, @outcome, @note, @createdAt)`
+           VALUES (@id, @commit, @reviewerType, @reviewer, @sessionId, @outcome, @note, @createdAt)`,
         )
         .run(rev);
       this.append(
@@ -1182,7 +1374,7 @@ export class Board {
         `${rev.reviewerType} review of ${sha.slice(0, 8)}: ${rev.outcome}`,
         "reviews",
         rev.id,
-        { commit: sha, outcome: rev.outcome }
+        { commit: sha, outcome: rev.outcome },
       );
     });
     tx.immediate();
@@ -1192,7 +1384,9 @@ export class Board {
   reviewsForCommit(commitSha: string): Review[] {
     return (
       this.db
-        .prepare("SELECT * FROM reviews WHERE commit_sha = ? ORDER BY created_at ASC")
+        .prepare(
+          "SELECT * FROM reviews WHERE commit_sha = ? ORDER BY created_at ASC",
+        )
         .all(commitSha) as any[]
     ).map(rowToReview);
   }
@@ -1201,7 +1395,9 @@ export class Board {
   handoffsFor(toAgent: string): Handoff[] {
     return (
       this.db
-        .prepare("SELECT * FROM handoffs WHERE to_agent = ? ORDER BY created_at DESC")
+        .prepare(
+          "SELECT * FROM handoffs WHERE to_agent = ? ORDER BY created_at DESC",
+        )
         .all(toAgent) as any[]
     ).map(rowToHandoff);
   }
@@ -1223,13 +1419,17 @@ export class Board {
       .prepare(
         `SELECT session_id, agent_id, MAX(created_at) AS at FROM files_changed
          WHERE path = ?
-         GROUP BY session_id, agent_id ORDER BY at DESC`
+         GROUP BY session_id, agent_id ORDER BY at DESC`,
       )
       .all(file) as any[];
     return {
       gitAuthors: git.fileAuthors(file),
       attributions: this.attributionsForFile(file),
-      sessions: rows.map((r) => ({ sessionId: r.session_id, agent: r.agent_id, at: r.at }))
+      sessions: rows.map((r) => ({
+        sessionId: r.session_id,
+        agent: r.agent_id,
+        at: r.at,
+      })),
     };
   }
 
@@ -1239,21 +1439,31 @@ export class Board {
    * reported `actor`/`cli` always reflect a row that matched the query — never
    * an unrelated attribution on the same commit.
    */
-  commitsByActor(query: string): { commit: string; actor: string; cli: string | null; at: string }[] {
+  commitsByActor(
+    query: string,
+  ): { commit: string; actor: string; cli: string | null; at: string }[] {
     const rows = this.db
       .prepare(
         `SELECT DISTINCT commit_sha, actor, cli, created_at FROM attributions
          WHERE actor = ? OR cli = ? OR provider = ? OR model = ?
-         ORDER BY created_at DESC`
+         ORDER BY created_at DESC`,
       )
       .all(query, query, query, query) as any[];
     // Collapse to one row per (commit, actor, cli); keep the earliest time.
-    const seen = new Map<string, { commit: string; actor: string; cli: string | null; at: string }>();
+    const seen = new Map<
+      string,
+      { commit: string; actor: string; cli: string | null; at: string }
+    >();
     for (const r of rows) {
       const key = `${r.commit_sha} ${r.actor} ${r.cli ?? ""}`;
       const existing = seen.get(key);
       if (!existing || r.created_at < existing.at) {
-        seen.set(key, { commit: r.commit_sha, actor: r.actor, cli: r.cli, at: r.created_at });
+        seen.set(key, {
+          commit: r.commit_sha,
+          actor: r.actor,
+          cli: r.cli,
+          at: r.created_at,
+        });
       }
     }
     return [...seen.values()].sort((x, y) => (x.at < y.at ? 1 : -1));
@@ -1273,10 +1483,14 @@ export class Board {
              SELECT 1 FROM reviews r
              WHERE r.commit_sha = a.commit_sha AND r.reviewer_type = 'human' AND r.outcome = 'approved'
            )
-         GROUP BY a.commit_sha ORDER BY at DESC`
+         GROUP BY a.commit_sha ORDER BY at DESC`,
       )
       .all() as any[];
-    return rows.map((r) => ({ commit: r.commit_sha, actor: r.actor, at: r.at }));
+    return rows.map((r) => ({
+      commit: r.commit_sha,
+      actor: r.actor,
+      at: r.at,
+    }));
   }
 
   /**
@@ -1288,9 +1502,18 @@ export class Board {
   jointFiles(agentA: string, agentB: string): string[] {
     const norm = (p: string): string => p.replace(/^\.\//, "");
     const filesOf = (agent: string): Set<string> => {
-      const fc = this.db.prepare("SELECT DISTINCT path FROM files_changed WHERE agent_id = ?").all(agent) as any[];
-      const at = this.db.prepare("SELECT DISTINCT file FROM attributions WHERE actor = ? AND file IS NOT NULL").all(agent) as any[];
-      return new Set([...fc.map((r) => norm(r.path)), ...at.map((r) => norm(r.file))]);
+      const fc = this.db
+        .prepare("SELECT DISTINCT path FROM files_changed WHERE agent_id = ?")
+        .all(agent) as any[];
+      const at = this.db
+        .prepare(
+          "SELECT DISTINCT file FROM attributions WHERE actor = ? AND file IS NOT NULL",
+        )
+        .all(agent) as any[];
+      return new Set([
+        ...fc.map((r) => norm(r.path)),
+        ...at.map((r) => norm(r.file)),
+      ]);
     };
     const a = filesOf(agentA);
     const b = filesOf(agentB);
@@ -1300,13 +1523,19 @@ export class Board {
   // --- governance (CI gate) --------------------------------------------------
 
   private distinctAttributedCommits(): string[] {
-    return (this.db.prepare("SELECT DISTINCT commit_sha FROM attributions").all() as any[]).map(
-      (r) => r.commit_sha
-    );
+    return (
+      this.db
+        .prepare("SELECT DISTINCT commit_sha FROM attributions")
+        .all() as any[]
+    ).map((r) => r.commit_sha);
   }
 
   private hasAttribution(sha: string): boolean {
-    return this.db.prepare("SELECT 1 FROM attributions WHERE commit_sha = ? LIMIT 1").get(sha) !== undefined;
+    return (
+      this.db
+        .prepare("SELECT 1 FROM attributions WHERE commit_sha = ? LIMIT 1")
+        .get(sha) !== undefined
+    );
   }
 
   // NB: the "approved human review" and "AI attribution" checks are now
@@ -1330,7 +1559,7 @@ export class Board {
         violations.push({
           kind: "chain-broken",
           commit: null,
-          detail: `timeline hash chain broken at seq ${chain.brokenAtSeq}`
+          detail: `timeline hash chain broken at seq ${chain.brokenAtSeq}`,
         });
       }
     }
@@ -1340,7 +1569,11 @@ export class Board {
     if (opts.requireAttribution && opts.commits) {
       for (const c of opts.commits) {
         if (!this.hasAttribution(c)) {
-          violations.push({ kind: "unattributed", commit: c, detail: "no attribution recorded for this commit" });
+          violations.push({
+            kind: "unattributed",
+            commit: c,
+            detail: "no attribution recorded for this commit",
+          });
         }
       }
     }
@@ -1353,22 +1586,35 @@ export class Board {
       const unreviewed = new Set(this.unreviewedCommits().map((c) => c.commit));
       for (const c of scope) {
         if (unreviewed.has(c)) {
-          violations.push({ kind: "unreviewed", commit: c, detail: "AI-produced commit has no approved human review" });
+          violations.push({
+            kind: "unreviewed",
+            commit: c,
+            detail: "AI-produced commit has no approved human review",
+          });
         }
       }
     }
 
-    return { ok: violations.length === 0, violations, chain, checked: scope.length };
+    return {
+      ok: violations.length === 0,
+      violations,
+      chain,
+      checked: scope.length,
+    };
   }
 
   // --- portability (export / import / trailers) ------------------------------
 
   private allAttributions(): Attribution[] {
-    return (this.db.prepare("SELECT * FROM attributions").all() as any[]).map(rowToAttribution);
+    return (this.db.prepare("SELECT * FROM attributions").all() as any[]).map(
+      rowToAttribution,
+    );
   }
 
   private allReviews(): Review[] {
-    return (this.db.prepare("SELECT * FROM reviews").all() as any[]).map(rowToReview);
+    return (this.db.prepare("SELECT * FROM reviews").all() as any[]).map(
+      rowToReview,
+    );
   }
 
   /**
@@ -1379,13 +1625,21 @@ export class Board {
    */
   exportBundle(commits?: string[]): AttributionBundle {
     const scope = new Set(commits ?? this.distinctAttributedCommits());
-    const attributions = this.allAttributions().filter((a) => scope.has(a.commit));
+    const attributions = this.allAttributions().filter((a) =>
+      scope.has(a.commit),
+    );
     const reviews = this.allReviews().filter((r) => scope.has(r.commit));
     const sessionIds = new Set(
-      [...attributions, ...reviews].map((x) => x.sessionId).filter((s): s is string => s !== null)
+      [...attributions, ...reviews]
+        .map((x) => x.sessionId)
+        .filter((s): s is string => s !== null),
     );
-    const sessions = [...sessionIds].map((sid) => this.getSession(sid)).filter((s): s is Session => s !== undefined);
-    const decisions = (this.db.prepare("SELECT * FROM decisions").all() as any[])
+    const sessions = [...sessionIds]
+      .map((sid) => this.getSession(sid))
+      .filter((s): s is Session => s !== undefined);
+    const decisions = (
+      this.db.prepare("SELECT * FROM decisions").all() as any[]
+    )
       .map(rowToDecision)
       .filter((d) => d.relatedCommits.some((c) => scope.has(c)));
     return {
@@ -1394,7 +1648,7 @@ export class Board {
       attributions,
       reviews,
       sessions,
-      decisions
+      decisions,
     };
   }
 
@@ -1403,15 +1657,22 @@ export class Board {
    * are left untouched, so re-importing is safe. One `import` event is appended
    * to the local timeline; the imported rows keep their original ids/times.
    */
-  importBundle(bundle: AttributionBundle): { attributions: number; reviews: number; sessions: number; decisions: number } {
+  importBundle(bundle: AttributionBundle): {
+    attributions: number;
+    reviews: number;
+    sessions: number;
+    decisions: number;
+  } {
     if (!bundle || bundle.version !== BUNDLE_VERSION) {
-      throw new Error(`unsupported bundle version: ${bundle?.version ?? "(none)"}`);
+      throw new Error(
+        `unsupported bundle version: ${bundle?.version ?? "(none)"}`,
+      );
     }
     const counts = { attributions: 0, reviews: 0, sessions: 0, decisions: 0 };
     const tx = this.db.transaction(() => {
       const insSession = this.db.prepare(
         `INSERT OR IGNORE INTO sessions (id, agent_name, label, machine, working_directory, git_branch, repository, public_key, last_heartbeat, started_at, finished_at)
-         VALUES (@id, @agentName, @label, @machine, @workingDirectory, @gitBranch, @repository, @publicKey, @lastHeartbeat, @startedAt, @finishedAt)`
+         VALUES (@id, @agentName, @label, @machine, @workingDirectory, @gitBranch, @repository, @publicKey, @lastHeartbeat, @startedAt, @finishedAt)`,
       );
       for (const s of bundle.sessions ?? []) {
         // Normalize: an external bundle may predate newer session columns, so
@@ -1427,32 +1688,32 @@ export class Board {
           publicKey: s.publicKey ?? null,
           lastHeartbeat: s.lastHeartbeat ?? null,
           startedAt: s.startedAt,
-          finishedAt: s.finishedAt ?? null
+          finishedAt: s.finishedAt ?? null,
         }).changes;
       }
       const insAttr = this.db.prepare(
         `INSERT OR IGNORE INTO attributions (id, commit_sha, file, hunk, actor_type, actor, provider, model, cli, session_id, created_at)
-         VALUES (@id, @commit, @file, @hunk, @actorType, @actor, @provider, @model, @cli, @sessionId, @createdAt)`
+         VALUES (@id, @commit, @file, @hunk, @actorType, @actor, @provider, @model, @cli, @sessionId, @createdAt)`,
       );
       for (const a of bundle.attributions ?? []) {
         counts.attributions += insAttr.run(a).changes;
       }
       const insReview = this.db.prepare(
         `INSERT OR IGNORE INTO reviews (id, commit_sha, reviewer_type, reviewer, session_id, outcome, note, created_at)
-         VALUES (@id, @commit, @reviewerType, @reviewer, @sessionId, @outcome, @note, @createdAt)`
+         VALUES (@id, @commit, @reviewerType, @reviewer, @sessionId, @outcome, @note, @createdAt)`,
       );
       for (const r of bundle.reviews ?? []) {
         counts.reviews += insReview.run(r).changes;
       }
       const insDecision = this.db.prepare(
         `INSERT OR IGNORE INTO decisions (id, agent_id, session_id, title, rationale, evidence, related_commits, related_tasks, created_at)
-         VALUES (@id, @agentId, @sessionId, @title, @rationale, @evidence, @relatedCommits, @relatedTasks, @createdAt)`
+         VALUES (@id, @agentId, @sessionId, @title, @rationale, @evidence, @relatedCommits, @relatedTasks, @createdAt)`,
       );
       for (const d of bundle.decisions ?? []) {
         counts.decisions += insDecision.run({
           ...d,
           relatedCommits: JSON.stringify(d.relatedCommits ?? []),
-          relatedTasks: JSON.stringify(d.relatedTasks ?? [])
+          relatedTasks: JSON.stringify(d.relatedTasks ?? []),
         }).changes;
       }
       this.append(
@@ -1461,7 +1722,7 @@ export class Board {
         `imported bundle: ${counts.attributions} attribution(s), ${counts.reviews} review(s)`,
         null,
         null,
-        counts
+        counts,
       );
     });
     tx.immediate();
@@ -1487,7 +1748,11 @@ export class Board {
         lines.push(line);
       }
     }
-    const sessionIds = [...new Set(attrs.map((a) => a.sessionId).filter((s): s is string => s !== null))];
+    const sessionIds = [
+      ...new Set(
+        attrs.map((a) => a.sessionId).filter((s): s is string => s !== null),
+      ),
+    ];
     for (const sid of sessionIds) {
       lines.push(`Blackboard-Session: ${sid}`);
     }
@@ -1495,13 +1760,15 @@ export class Board {
   }
 
   /** Everything the board knows about a commit — the `explain` view. */
-  explain(rev: string): {
-    commit: git.CommitInfo | { sha: string };
-    attributions: Attribution[];
-    reviews: Review[];
-    decisions: Decision[];
-    note: string | null;
-  } | undefined {
+  explain(rev: string):
+    | {
+        commit: git.CommitInfo | { sha: string };
+        attributions: Attribution[];
+        reviews: Review[];
+        decisions: Decision[];
+        note: string | null;
+      }
+    | undefined {
     const sha = git.resolveRev(rev) ?? rev;
     const info = git.commitInfo(sha) ?? { sha };
     const attributions = this.attributionsForCommit(sha);
@@ -1513,17 +1780,26 @@ export class Board {
       attributions,
       reviews: this.reviewsForCommit(sha),
       decisions: this.decisionsForCommit(sha),
-      note: git.readNote(sha) ?? null
+      note: git.readNote(sha) ?? null,
     };
   }
 
   /** Which session introduced a line — Git blame → attribution. */
-  blame(file: string, line: number): { sha: string; gitAuthor: string; attributions: Attribution[] } | undefined {
+  blame(
+    file: string,
+    line: number,
+  ):
+    | { sha: string; gitAuthor: string; attributions: Attribution[] }
+    | undefined {
     const b = git.blameLine(file, line);
     if (!b) {
       return undefined;
     }
-    return { sha: b.sha, gitAuthor: b.author, attributions: this.attributionsForCommitFile(b.sha, file) };
+    return {
+      sha: b.sha,
+      gitAuthor: b.author,
+      attributions: this.attributionsForCommitFile(b.sha, file),
+    };
   }
 
   /**
@@ -1534,7 +1810,7 @@ export class Board {
    */
   blameNarrative(
     file: string,
-    line: number
+    line: number,
   ):
     | {
         sha: string;
@@ -1551,16 +1827,39 @@ export class Board {
       return undefined;
     }
     const attributions = this.attributionsForCommitFile(b.sha, file);
-    const sessionId = attributions.map((a) => a.sessionId).find((s): s is string => s !== null) ?? null;
+    const sessionId =
+      attributions
+        .map((a) => a.sessionId)
+        .find((s): s is string => s !== null) ?? null;
     const session = sessionId ? (this.getSession(sessionId) ?? null) : null;
     const sessionTimeline = sessionId ? this.sessionTimeline(sessionId) : [];
     const decisions = sessionId
-      ? (this.db.prepare("SELECT * FROM decisions WHERE session_id = ? ORDER BY created_at ASC").all(sessionId) as any[]).map(rowToDecision)
+      ? (
+          this.db
+            .prepare(
+              "SELECT * FROM decisions WHERE session_id = ? ORDER BY created_at ASC",
+            )
+            .all(sessionId) as any[]
+        ).map(rowToDecision)
       : [];
     const handoffs = sessionId
-      ? (this.db.prepare("SELECT * FROM handoffs WHERE from_session = ? ORDER BY created_at ASC").all(sessionId) as any[]).map(rowToHandoff)
+      ? (
+          this.db
+            .prepare(
+              "SELECT * FROM handoffs WHERE from_session = ? ORDER BY created_at ASC",
+            )
+            .all(sessionId) as any[]
+        ).map(rowToHandoff)
       : [];
-    return { sha: b.sha, gitAuthor: b.author, attributions, session, sessionTimeline, decisions, handoffs };
+    return {
+      sha: b.sha,
+      gitAuthor: b.author,
+      attributions,
+      session,
+      sessionTimeline,
+      decisions,
+      handoffs,
+    };
   }
 
   // --- reporting -------------------------------------------------------------
@@ -1568,17 +1867,26 @@ export class Board {
   /** Aggregate metrics for a scorecard: coverage, AI/human ratio, per-agent. */
   report(): Report {
     const one = (sql: string, ...params: unknown[]): number => {
-      const row = this.db.prepare(sql).get(...params) as { n: number } | undefined;
+      const row = this.db.prepare(sql).get(...params) as
+        { n: number } | undefined;
       return row?.n ?? 0;
     };
     const attrTotal = one("SELECT COUNT(*) AS n FROM attributions");
-    const attrAi = one("SELECT COUNT(*) AS n FROM attributions WHERE actor_type = 'ai'");
-    const attrHuman = one("SELECT COUNT(*) AS n FROM attributions WHERE actor_type = 'human'");
+    const attrAi = one(
+      "SELECT COUNT(*) AS n FROM attributions WHERE actor_type = 'ai'",
+    );
+    const attrHuman = one(
+      "SELECT COUNT(*) AS n FROM attributions WHERE actor_type = 'human'",
+    );
 
-    const commitsTotal = one("SELECT COUNT(DISTINCT commit_sha) AS n FROM attributions");
+    const commitsTotal = one(
+      "SELECT COUNT(DISTINCT commit_sha) AS n FROM attributions",
+    );
     // Set-based (was an N+1 loop of hasHumanReview per AI commit): count AI
     // commits, and those with an approved human review, in two queries.
-    const aiProduced = one("SELECT COUNT(DISTINCT commit_sha) AS n FROM attributions WHERE actor_type = 'ai'");
+    const aiProduced = one(
+      "SELECT COUNT(DISTINCT commit_sha) AS n FROM attributions WHERE actor_type = 'ai'",
+    );
     const reviewed = one(
       `SELECT COUNT(*) AS n FROM (
          SELECT DISTINCT a.commit_sha FROM attributions a
@@ -1586,7 +1894,7 @@ export class Board {
            AND EXISTS (SELECT 1 FROM reviews r
                        WHERE r.commit_sha = a.commit_sha
                          AND r.reviewer_type = 'human' AND r.outcome = 'approved')
-       )`
+       )`,
     );
     const unreviewed = aiProduced - reviewed;
     // N/A (null), not 100%, when there is no AI work to review.
@@ -1596,21 +1904,36 @@ export class Board {
       .prepare(
         `SELECT actor AS agent, actor_type AS actorType, COUNT(*) AS attributions,
                 COUNT(DISTINCT commit_sha) AS commits, COUNT(DISTINCT file) AS files
-         FROM attributions GROUP BY actor, actor_type ORDER BY attributions DESC`
+         FROM attributions GROUP BY actor, actor_type ORDER BY attributions DESC`,
       )
-      .all() as { agent: string; actorType: string; attributions: number; commits: number; files: number }[];
+      .all() as {
+      agent: string;
+      actorType: string;
+      attributions: number;
+      commits: number;
+      files: number;
+    }[];
 
     return {
       attributions: { total: attrTotal, ai: attrAi, human: attrHuman },
-      commits: { total: commitsTotal, aiProduced, humanReviewed: reviewed, unreviewed },
+      commits: {
+        total: commitsTotal,
+        aiProduced,
+        humanReviewed: reviewed,
+        unreviewed,
+      },
       reviewCoverage,
       aiHumanRatio: { ai: attrAi, human: attrHuman },
       perAgent: perAgentRows,
       sessions: {
         total: one("SELECT COUNT(*) AS n FROM sessions"),
-        open: one("SELECT COUNT(*) AS n FROM sessions WHERE finished_at IS NULL")
+        open: one(
+          "SELECT COUNT(*) AS n FROM sessions WHERE finished_at IS NULL",
+        ),
       },
-      risks: { open: one("SELECT COUNT(*) AS n FROM risks WHERE status = 'open'") }
+      risks: {
+        open: one("SELECT COUNT(*) AS n FROM risks WHERE status = 'open'"),
+      },
     };
   }
 
@@ -1622,7 +1945,9 @@ export class Board {
     if (!sid) {
       return undefined;
     }
-    this.db.prepare("UPDATE sessions SET last_heartbeat = ? WHERE id = ?").run(now(), sid);
+    this.db
+      .prepare("UPDATE sessions SET last_heartbeat = ? WHERE id = ?")
+      .run(now(), sid);
     return this.getSession(sid);
   }
 
@@ -1631,7 +1956,9 @@ export class Board {
     const cutoff = new Date(Date.now() - withinMs).toISOString();
     return (
       this.db
-        .prepare("SELECT * FROM sessions WHERE finished_at IS NULL AND last_heartbeat >= ? ORDER BY last_heartbeat DESC")
+        .prepare(
+          "SELECT * FROM sessions WHERE finished_at IS NULL AND last_heartbeat >= ? ORDER BY last_heartbeat DESC",
+        )
         .all(cutoff) as any[]
     ).map(rowToSession);
   }
@@ -1641,13 +1968,21 @@ export class Board {
    * collision awareness (two live agents editing one file), a step beyond the
    * same-task conflict surfaced by `fileChanged`.
    */
-  activeEditorsOfFile(file: string, excludeSession: string | null, withinMs = 120_000): { sessionId: string; agent: string }[] {
+  activeEditorsOfFile(
+    file: string,
+    excludeSession: string | null,
+    withinMs = 120_000,
+  ): { sessionId: string; agent: string }[] {
     const active = new Set(this.activeSessions(withinMs).map((s) => s.id));
     const rows = this.db
-      .prepare("SELECT DISTINCT session_id, agent_id FROM files_changed WHERE path = ? AND session_id IS NOT NULL")
+      .prepare(
+        "SELECT DISTINCT session_id, agent_id FROM files_changed WHERE path = ? AND session_id IS NOT NULL",
+      )
       .all(file) as any[];
     return rows
-      .filter((r) => active.has(r.session_id) && r.session_id !== excludeSession)
+      .filter(
+        (r) => active.has(r.session_id) && r.session_id !== excludeSession,
+      )
       .map((r) => ({ sessionId: r.session_id, agent: r.agent_id }));
   }
 
@@ -1658,14 +1993,20 @@ export class Board {
    * records) created before a horizon. The append-only timeline is NEVER pruned
    * — it is the audit trail — so pruning is recorded as one `prune` event.
    */
-  prune(beforeIso: string): { messages: number; evidence: number; filesChanged: number } {
+  prune(beforeIso: string): {
+    messages: number;
+    evidence: number;
+    filesChanged: number;
+  } {
     const tx = this.db.transaction(() => {
       const del = (table: string): number =>
-        this.db.prepare(`DELETE FROM ${table} WHERE created_at < ?`).run(beforeIso).changes;
+        this.db
+          .prepare(`DELETE FROM ${table} WHERE created_at < ?`)
+          .run(beforeIso).changes;
       const counts = {
         messages: del("messages"),
         evidence: del("evidence"),
-        filesChanged: del("files_changed")
+        filesChanged: del("files_changed"),
       };
       this.append(
         this.config.agent,
@@ -1673,7 +2014,7 @@ export class Board {
         `pruned rows before ${beforeIso}: ${counts.messages} message(s), ${counts.evidence} evidence, ${counts.filesChanged} file-change(s)`,
         null,
         null,
-        counts
+        counts,
       );
       return counts;
     });
@@ -1695,15 +2036,18 @@ export class Board {
    * keep the chain valid). Don't store secrets you must be able to destroy.
    */
   redact(seq: number, reason: string | null = null): boolean {
-    const row = this.db.prepare("SELECT ref_table, ref_id FROM timeline WHERE seq = ?").get(seq) as
-      | { ref_table: string | null; ref_id: string | null }
-      | undefined;
+    const row = this.db
+      .prepare("SELECT ref_table, ref_id FROM timeline WHERE seq = ?")
+      .get(seq) as
+      { ref_table: string | null; ref_id: string | null } | undefined;
     if (!row) {
       return false;
     }
     const tx = this.db.transaction(() => {
       this.db
-        .prepare("INSERT OR REPLACE INTO redactions (seq, reason, actor, created_at) VALUES (?, ?, ?, ?)")
+        .prepare(
+          "INSERT OR REPLACE INTO redactions (seq, reason, actor, created_at) VALUES (?, ?, ?, ?)",
+        )
         .run(seq, reason, this.config.agent, now());
       // Blank the free-text columns of the source row, if any, so no direct
       // read path can surface the redacted content.
@@ -1713,7 +2057,7 @@ export class Board {
         evidence: "UPDATE evidence SET ref = ?, note = ? WHERE id = ?",
         handoffs: "UPDATE handoffs SET summary = ?, context = ? WHERE id = ?",
         decisions: "UPDATE decisions SET rationale = ? WHERE id = ?",
-        risks: "UPDATE risks SET title = ? WHERE id = ?"
+        risks: "UPDATE risks SET title = ? WHERE id = ?",
       };
       if (row.ref_table && row.ref_id && blanks[row.ref_table]) {
         const sql = blanks[row.ref_table];
@@ -1721,7 +2065,14 @@ export class Board {
         const params = Array<string>(argCount - 1).fill(TOMB);
         this.db.prepare(sql).run(...params, row.ref_id);
       }
-      this.append(this.config.agent, "redaction", `redacted #${seq}${reason ? `: ${reason}` : ""}`, "timeline", String(seq), { seq });
+      this.append(
+        this.config.agent,
+        "redaction",
+        `redacted #${seq}${reason ? `: ${reason}` : ""}`,
+        "timeline",
+        String(seq),
+        { seq },
+      );
     });
     tx.immediate();
     return true;
@@ -1729,7 +2080,9 @@ export class Board {
 
   /** Seqs that have been redacted, with their reason. */
   private redactionMap(): Map<number, string | null> {
-    const rows = this.db.prepare("SELECT seq, reason FROM redactions").all() as {
+    const rows = this.db
+      .prepare("SELECT seq, reason FROM redactions")
+      .all() as {
       seq: number;
       reason: string | null;
     }[];
@@ -1744,8 +2097,12 @@ export class Board {
     }
     return events.map((e) =>
       redacted.has(e.seq)
-        ? { ...e, summary: `[redacted${redacted.get(e.seq) ? `: ${redacted.get(e.seq)}` : ""}]`, payload: null }
-        : e
+        ? {
+            ...e,
+            summary: `[redacted${redacted.get(e.seq) ? `: ${redacted.get(e.seq)}` : ""}]`,
+            payload: null,
+          }
+        : e,
     );
   }
 
@@ -1756,7 +2113,11 @@ export class Board {
    * under the acting agent and active session, then append one `ingest`
    * summary event. Each file/decision/note is attributed like any other write.
    */
-  ingest(events: IngestEvent[]): { files: number; decisions: number; notes: number } {
+  ingest(events: IngestEvent[]): {
+    files: number;
+    decisions: number;
+    notes: number;
+  } {
     const counts = { files: 0, decisions: 0, notes: 0 };
     // One transaction for the whole batch: a crash mid-transcript leaves the
     // board unchanged (all-or-nothing), rather than a half-applied prefix that
@@ -1767,7 +2128,9 @@ export class Board {
           this.fileChanged(this.config.agent, e.path, e.change);
           counts.files += 1;
         } else if (e.type === "decision") {
-          this.decision(this.config.agent, e.title, { rationale: e.rationale ?? null });
+          this.decision(this.config.agent, e.title, {
+            rationale: e.rationale ?? null,
+          });
           counts.decisions += 1;
         } else if (e.type === "note") {
           this.note(this.config.agent, e.text);
@@ -1783,7 +2146,7 @@ export class Board {
           `ingested ${counts.files} file(s), ${counts.decisions} decision(s), ${counts.notes} note(s)`,
           null,
           null,
-          counts
+          counts,
         );
       }
     });
@@ -1799,13 +2162,17 @@ export class Board {
       openTasks: this.listTasks().filter((t) => t.status !== "done"),
       unreadMessages: forAgent ? this.inbox(forAgent) : this.allUnread(),
       openRisks: this.listRisks("open"),
-      recentTimeline: this.timeline(10)
+      recentTimeline: this.timeline(10),
     };
   }
 
   private allUnread(): Message[] {
     return (
-      this.db.prepare("SELECT * FROM messages WHERE read_at IS NULL ORDER BY created_at DESC").all() as any[]
+      this.db
+        .prepare(
+          "SELECT * FROM messages WHERE read_at IS NULL ORDER BY created_at DESC",
+        )
+        .all() as any[]
     ).map(rowToMessage);
   }
 }
@@ -1822,7 +2189,7 @@ function rowToAgent(r: any): Agent {
     cli: r.cli ?? null,
     version: r.version ?? null,
     createdAt: r.created_at,
-    lastSeen: r.last_seen
+    lastSeen: r.last_seen,
   };
 }
 
@@ -1838,7 +2205,7 @@ function rowToSession(r: any): Session {
     publicKey: r.public_key ?? null,
     lastHeartbeat: r.last_heartbeat ?? null,
     startedAt: r.started_at,
-    finishedAt: r.finished_at ?? null
+    finishedAt: r.finished_at ?? null,
   };
 }
 
@@ -1867,7 +2234,7 @@ function rowToDecision(r: any): Decision {
     evidence: r.evidence ?? null,
     relatedCommits: parseJsonArray(r.related_commits),
     relatedTasks: parseJsonArray(r.related_tasks),
-    createdAt: r.created_at
+    createdAt: r.created_at,
   };
 }
 
@@ -1883,7 +2250,7 @@ function rowToAttribution(r: any): Attribution {
     model: r.model ?? null,
     cli: r.cli ?? null,
     sessionId: r.session_id ?? null,
-    createdAt: r.created_at
+    createdAt: r.created_at,
   };
 }
 
@@ -1896,7 +2263,7 @@ function rowToReview(r: any): Review {
     sessionId: r.session_id ?? null,
     outcome: r.outcome,
     note: r.note ?? null,
-    createdAt: r.created_at
+    createdAt: r.created_at,
   };
 }
 
@@ -1913,7 +2280,7 @@ function rowToHandoff(r: any): Handoff {
     openQuestions: parseJsonArray(r.open_questions),
     taskKey: r.task_key ?? null,
     createdAt: r.created_at,
-    acceptedAt: r.accepted_at ?? null
+    acceptedAt: r.accepted_at ?? null,
   };
 }
 
@@ -1928,7 +2295,7 @@ function rowToTask(r: any): Task {
     claimedAt: r.claimed_at,
     releasedAt: r.released_at,
     createdAt: r.created_at,
-    updatedAt: r.updated_at
+    updatedAt: r.updated_at,
   };
 }
 
@@ -1939,7 +2306,7 @@ function rowToMessage(r: any): Message {
     toAgent: r.to_agent,
     body: r.body,
     createdAt: r.created_at,
-    readAt: r.read_at
+    readAt: r.read_at,
   };
 }
 
@@ -1950,7 +2317,7 @@ function rowToRisk(r: any): Risk {
     title: r.title,
     severity: r.severity,
     status: r.status,
-    createdAt: r.created_at
+    createdAt: r.created_at,
   };
 }
 
@@ -1962,7 +2329,7 @@ function rowToFileChange(r: any): FileChange {
     path: r.path,
     change: r.change,
     taskKey: r.task_key,
-    createdAt: r.created_at
+    createdAt: r.created_at,
   };
 }
 
@@ -1979,6 +2346,6 @@ function rowToTimeline(r: any): TimelineEvent {
     summary: r.summary,
     payload: r.payload === null ? null : JSON.parse(r.payload),
     prevHash: r.prev_hash,
-    hash: r.hash
+    hash: r.hash,
   };
 }
