@@ -13,6 +13,20 @@ export function serve(board: Board, port: number, host = "127.0.0.1"): Server {
     res.end(JSON.stringify(data));
   };
 
+  // verifyChain() is O(n) over the whole (append-only, unbounded) timeline, and
+  // the dashboard polls /api/status every 2s — so cache the verification and
+  // refresh it at most once per window rather than re-hashing all of history on
+  // every poll (twice, once inside signedThrough) for a long-lived server.
+  const VERIFY_TTL_MS = 5000;
+  let cached: { at: number; chain: ReturnType<Board["verifyChain"]> } | null = null;
+  const verifiedChain = (): ReturnType<Board["verifyChain"]> => {
+    const nowMs = Date.now();
+    if (!cached || nowMs - cached.at > VERIFY_TTL_MS) {
+      cached = { at: nowMs, chain: board.verifyChain() };
+    }
+    return cached.chain;
+  };
+
   const server = createServer((req, res) => {
     if (req.method !== "GET") {
       res.writeHead(405, { "content-type": "text/plain" });
@@ -26,12 +40,14 @@ export function serve(board: Board, port: number, host = "127.0.0.1"): Server {
           res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
           res.end(DASHBOARD_HTML);
           return;
-        case "/api/status":
+        case "/api/status": {
+          const chain = verifiedChain();
           return json(res, {
             ...board.status(),
-            chain: board.verifyChain(),
-            signedThrough: board.signedThrough()
+            chain,
+            signedThrough: board.signedThrough(chain)
           });
+        }
         case "/api/report":
           return json(res, board.report());
         case "/api/timeline":

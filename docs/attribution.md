@@ -11,7 +11,7 @@ attribution record — and where the boundaries are.
 ```mermaid
 flowchart TD
     A[agent session start] -->|"captures machine,<br/>branch, repo, identity"| S[(sessions)]
-    A --> P[/.octoboard/current-sessions.json/]
+    A --> P[(current_sessions<br/>DB table)]
     P -.->|"active session per agent,<br/>survives CLI restarts"| W
 
     W[writes: note / claim /<br/>file / decision / handoff] --> TL[(timeline<br/>hash chain)]
@@ -42,8 +42,9 @@ flowchart TD
 1. **`session start`** — opens a `sessions` row capturing `machine`,
    `working_directory`, `git_branch`, `repository`, and the agent's
    provider-independent identity (`provider` / `model` / `cli` / `version`). The
-   session id is written to `.octoboard/current-sessions.json`, keyed by agent,
-   so every later CLI process (a separate OS process) attributes to it.
+   session id is recorded in the `current_sessions` DB table, keyed by agent, so
+   every later CLI process (a separate OS process) attributes to it — and
+   start/stop are transactional, so concurrent CLIs can't race the pointer.
 
 2. **Work happens** — `note`, `claim`, `file`, `decision`, `handoff`. Each is
    one SQLite transaction that also appends a `timeline` entry. The active

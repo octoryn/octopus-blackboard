@@ -1,6 +1,5 @@
 import { existsSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { currentSession } from "./current.js";
 
 /**
  * Resolved configuration for a single blackboard. Local-first: the board is a
@@ -110,6 +109,10 @@ export function loadConfig(overrides: ConfigOverrides = {}): BoardConfig {
     agent: identity.name,
     agentKind: identity.kind,
     identity,
-    sessionId: currentSession(boardDir, identity.name)
+    // An explicit env override wins; otherwise the Board resolves the agent's
+    // active session transactionally from the DB's current_sessions table.
+    sessionId: process.env.OCTOBOARD_SESSION && process.env.OCTOBOARD_SESSION.length > 0
+      ? process.env.OCTOBOARD_SESSION
+      : null
   };
 }

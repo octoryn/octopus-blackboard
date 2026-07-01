@@ -5,7 +5,6 @@ import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { openDb } from "./db.js";
 import { loadConfig, type AgentIdentity, type BoardConfig, type ConfigOverrides } from "./config.js";
-import { clearCurrentSession, setCurrentSession } from "./current.js";
 import * as git from "./git.js";
 import { generateSessionKeypair, signHash, verifyHash } from "./signing.js";
 import type { IngestEvent } from "./adapters.js";
@@ -134,8 +133,22 @@ export class Board {
 
   constructor(config: BoardConfig) {
     this.config = config;
-    this.activeSession = config.sessionId;
     this.db = openDb(config.dbPath);
+    // An explicit env/flag session wins; otherwise resolve the agent's active
+    // session from the DB (set transactionally by session start/stop).
+    this.activeSession = config.sessionId ?? this.currentSessionFromDb(config.agent);
+  }
+
+  private currentSessionFromDb(agent: string): string | null {
+    const row = this.db.prepare("SELECT session_id FROM current_sessions WHERE agent = ?").get(agent) as
+      | { session_id: string }
+      | undefined;
+    return row?.session_id ?? null;
+  }
+
+  /** The active session id for this board's agent (null if none). */
+  activeSessionId(): string | null {
+    return this.activeSession;
   }
 
   static open(overrides: ConfigOverrides = {}): Board {
@@ -396,9 +409,9 @@ export class Board {
   // --- sessions --------------------------------------------------------------
 
   /**
-   * Open a new session for the acting agent and make it current (persisted to
-   * the pointer file, so later CLI invocations attribute to it). Captures the
-   * machine and repository context the session runs in.
+   * Open a new session for the acting agent and make it current (persisted in
+   * the DB, so later CLI invocations attribute to it). Captures the machine and
+   * repository context the session runs in.
    */
   startSession(label: string | null = null): Session {
     const sessionId = id();
@@ -428,8 +441,12 @@ export class Board {
            VALUES (@id, @agentName, @label, @machine, @workingDirectory, @gitBranch, @repository, @publicKey, @lastHeartbeat, @startedAt, @finishedAt)`
         )
         .run(session);
-      // Stamp subsequent events (including this one) with the new session.
+      // Stamp subsequent events (including this one) with the new session, and
+      // record the pointer transactionally so concurrent CLIs can't race it.
       this.activeSession = session.id;
+      this.db
+        .prepare("INSERT OR REPLACE INTO current_sessions (agent, session_id) VALUES (?, ?)")
+        .run(this.config.agent, session.id);
       this.append(
         this.config.agent,
         "session-start",
@@ -440,9 +457,7 @@ export class Board {
       );
       return session;
     });
-    const session = tx.immediate();
-    setCurrentSession(this.config.boardDir, this.config.agent, session.id);
-    return session;
+    return tx.immediate();
   }
 
   // --- session signing (v0) --------------------------------------------------
@@ -453,7 +468,9 @@ export class Board {
 
   private saveSessionKey(sessionId: string, privateKeyPem: string): void {
     const path = this.keyPath(sessionId);
-    mkdirSync(join(this.config.boardDir, "keys"), { recursive: true });
+    // 0700 dir + 0600 file: private keys are not listable/readable by other
+    // local users.
+    mkdirSync(join(this.config.boardDir, "keys"), { recursive: true, mode: 0o700 });
     writeFileSync(path, privateKeyPem, { mode: 0o600 });
   }
 
@@ -504,7 +521,7 @@ export class Board {
    * its public key. `current` = the signed head hash still matches the timeline
    * row at that seq (i.e. history below it was not altered/truncated since).
    */
-  verifySignatures(): {
+  verifySignatures(chain?: ChainVerification): {
     sessionId: string;
     agent: string | null;
     headSeq: number;
@@ -513,16 +530,20 @@ export class Board {
     at: string;
   }[] {
     const rows = this.db.prepare("SELECT * FROM signatures ORDER BY head_seq ASC").all() as any[];
+    if (rows.length === 0) {
+      return [];
+    }
     // A signature only "covers" its head if the chain is actually intact up to
     // that seq — otherwise a tamper below the signed head (that leaves the head
-    // row's stored hash untouched) would still read as trusted.
-    const chain = this.verifyChain();
+    // row's stored hash untouched) would still read as trusted. Accept a
+    // precomputed chain to avoid re-verifying the whole timeline repeatedly.
+    const verified = chain ?? this.verifyChain();
     return rows.map((r) => {
       const valid = verifyHash(r.public_key, r.head_hash, r.signature);
       const row = this.db.prepare("SELECT hash FROM timeline WHERE seq = ?").get(r.head_seq) as
         | { hash: string }
         | undefined;
-      const chainOkThroughHead = chain.ok || (chain.brokenAtSeq !== null && r.head_seq < chain.brokenAtSeq);
+      const chainOkThroughHead = verified.ok || (verified.brokenAtSeq !== null && r.head_seq < verified.brokenAtSeq);
       const session = this.getSession(r.session_id);
       return {
         sessionId: r.session_id,
@@ -536,8 +557,8 @@ export class Board {
   }
 
   /** Highest seq that a valid, still-current signature vouches for (0 = none). */
-  signedThrough(): number {
-    return this.verifySignatures()
+  signedThrough(chain?: ChainVerification): number {
+    return this.verifySignatures(chain)
       .filter((s) => s.valid && s.current)
       .reduce((max, s) => Math.max(max, s.headSeq), 0);
   }
@@ -556,8 +577,11 @@ export class Board {
       const at = now();
       this.db.prepare("UPDATE sessions SET finished_at = ? WHERE id = ?").run(at, target);
       this.activeSession = target;
-      // Legacy/migrated session rows may lack an agent_name; fall back to the
-      // acting agent so the timeline actor and pointer key are never null.
+      // Clear the pointer transactionally (only if it still points here, so a
+      // concurrent new session for the same agent is not clobbered).
+      this.db
+        .prepare("DELETE FROM current_sessions WHERE agent = ? AND session_id = ?")
+        .run(existing.agentName ?? this.config.agent, target);
       this.append(existing.agentName ?? this.config.agent, "session-stop", "session stopped", "sessions", target, null);
       return this.getSession(target);
     });
@@ -570,7 +594,6 @@ export class Board {
       } catch {
         /* signing is advisory in v0 */
       }
-      clearCurrentSession(this.config.boardDir, session.agentName ?? this.config.agent);
     }
     return session;
   }
@@ -750,9 +773,16 @@ export class Board {
 
   /** Messages addressed to `agent` (or broadcast) that are still unread. */
   inbox(agent: string, includeRead = false): Message[] {
+    // UNION ALL of two disjoint branches (direct vs broadcast) so each can use
+    // idx_messages_to; a single `to_agent = ? OR to_agent IS NULL` predicate
+    // would force a full table scan.
     const sql = includeRead
-      ? "SELECT * FROM messages WHERE to_agent = ? OR to_agent IS NULL ORDER BY created_at DESC"
-      : "SELECT * FROM messages WHERE (to_agent = ? OR to_agent IS NULL) AND read_at IS NULL ORDER BY created_at DESC";
+      ? `SELECT * FROM messages WHERE to_agent = ?
+         UNION ALL SELECT * FROM messages WHERE to_agent IS NULL
+         ORDER BY created_at DESC`
+      : `SELECT * FROM messages WHERE to_agent = ? AND read_at IS NULL
+         UNION ALL SELECT * FROM messages WHERE to_agent IS NULL AND read_at IS NULL
+         ORDER BY created_at DESC`;
     return (this.db.prepare(sql).all(agent) as any[]).map(rowToMessage);
   }
 
@@ -1258,27 +1288,9 @@ export class Board {
     return this.db.prepare("SELECT 1 FROM attributions WHERE commit_sha = ? LIMIT 1").get(sha) !== undefined;
   }
 
-  private hasAiAttribution(sha: string): boolean {
-    return (
-      this.db
-        .prepare("SELECT 1 FROM attributions WHERE commit_sha = ? AND actor_type = 'ai' LIMIT 1")
-        .get(sha) !== undefined
-    );
-  }
-
-  /**
-   * A commit counts as human-reviewed only with an APPROVED human review — a
-   * `rejected` or `changes-requested` outcome is a review that withheld
-   * sign-off, so it must not clear the accountability gate or coverage metric.
-   * `commented` is neutral engagement and likewise does not count as sign-off.
-   */
-  private hasHumanReview(sha: string): boolean {
-    return (
-      this.db
-        .prepare("SELECT 1 FROM reviews WHERE commit_sha = ? AND reviewer_type = 'human' AND outcome = 'approved' LIMIT 1")
-        .get(sha) !== undefined
-    );
-  }
+  // NB: the "approved human review" and "AI attribution" checks are now
+  // expressed set-based inside report()/unreviewedCommits()/check() rather than
+  // per-commit helpers, to avoid N+1 query loops.
 
   /**
    * Evaluate governance policy over a set of commits — the read-only basis for
@@ -1314,9 +1326,13 @@ export class Board {
 
     const scope = opts.commits ?? this.distinctAttributedCommits();
     if (opts.requireHumanReview) {
+      // Set-based (was an N+1 of hasAiAttribution+hasHumanReview per commit):
+      // unreviewedCommits() is the board-wide set of AI commits lacking an
+      // approved human review; intersect it with the scope.
+      const unreviewed = new Set(this.unreviewedCommits().map((c) => c.commit));
       for (const c of scope) {
-        if (this.hasAiAttribution(c) && !this.hasHumanReview(c)) {
-          violations.push({ kind: "unreviewed", commit: c, detail: "AI-produced commit has no human review" });
+        if (unreviewed.has(c)) {
+          violations.push({ kind: "unreviewed", commit: c, detail: "AI-produced commit has no approved human review" });
         }
       }
     }
@@ -1539,16 +1555,18 @@ export class Board {
     const attrHuman = one("SELECT COUNT(*) AS n FROM attributions WHERE actor_type = 'human'");
 
     const commitsTotal = one("SELECT COUNT(DISTINCT commit_sha) AS n FROM attributions");
-    const aiCommits = this.db
-      .prepare("SELECT DISTINCT commit_sha AS c FROM attributions WHERE actor_type = 'ai'")
-      .all() as { c: string }[];
-    let reviewed = 0;
-    for (const { c } of aiCommits) {
-      if (this.hasHumanReview(c)) {
-        reviewed += 1;
-      }
-    }
-    const aiProduced = aiCommits.length;
+    // Set-based (was an N+1 loop of hasHumanReview per AI commit): count AI
+    // commits, and those with an approved human review, in two queries.
+    const aiProduced = one("SELECT COUNT(DISTINCT commit_sha) AS n FROM attributions WHERE actor_type = 'ai'");
+    const reviewed = one(
+      `SELECT COUNT(*) AS n FROM (
+         SELECT DISTINCT a.commit_sha FROM attributions a
+         WHERE a.actor_type = 'ai'
+           AND EXISTS (SELECT 1 FROM reviews r
+                       WHERE r.commit_sha = a.commit_sha
+                         AND r.reviewer_type = 'human' AND r.outcome = 'approved')
+       )`
+    );
     const unreviewed = aiProduced - reviewed;
     // N/A (null), not 100%, when there is no AI work to review.
     const reviewCoverage = aiProduced === 0 ? null : reviewed / aiProduced;
@@ -1719,34 +1737,36 @@ export class Board {
    */
   ingest(events: IngestEvent[]): { files: number; decisions: number; notes: number } {
     const counts = { files: 0, decisions: 0, notes: 0 };
-    for (const e of events) {
-      if (e.type === "file") {
-        this.fileChanged(this.config.agent, e.path, e.change);
-        counts.files += 1;
-      } else if (e.type === "decision") {
-        this.decision(this.config.agent, e.title, { rationale: e.rationale ?? null });
-        counts.decisions += 1;
-      } else if (e.type === "note") {
-        this.note(this.config.agent, e.text);
-        counts.notes += 1;
+    // One transaction for the whole batch: a crash mid-transcript leaves the
+    // board unchanged (all-or-nothing), rather than a half-applied prefix that
+    // a re-run would double-record. The per-item writes nest as savepoints.
+    const tx = this.db.transaction(() => {
+      for (const e of events) {
+        if (e.type === "file") {
+          this.fileChanged(this.config.agent, e.path, e.change);
+          counts.files += 1;
+        } else if (e.type === "decision") {
+          this.decision(this.config.agent, e.title, { rationale: e.rationale ?? null });
+          counts.decisions += 1;
+        } else if (e.type === "note") {
+          this.note(this.config.agent, e.text);
+          counts.notes += 1;
+        }
       }
-    }
-    // Don't append a summary event for an empty ingest — that would accrete
-    // pure noise into the immutable timeline on no-op transcripts.
-    if (counts.files + counts.decisions + counts.notes > 0) {
-      this.db
-        .transaction(() =>
-          this.append(
-            this.config.agent,
-            "ingest",
-            `ingested ${counts.files} file(s), ${counts.decisions} decision(s), ${counts.notes} note(s)`,
-            null,
-            null,
-            counts
-          )
-        )
-        .immediate();
-    }
+      // Skip the summary event for an empty ingest — it would be pure noise in
+      // the immutable timeline on a no-op transcript.
+      if (counts.files + counts.decisions + counts.notes > 0) {
+        this.append(
+          this.config.agent,
+          "ingest",
+          `ingested ${counts.files} file(s), ${counts.decisions} decision(s), ${counts.notes} note(s)`,
+          null,
+          null,
+          counts
+        );
+      }
+    });
+    tx.immediate();
     return counts;
   }
 

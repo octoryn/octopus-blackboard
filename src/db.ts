@@ -12,6 +12,10 @@ export function openDb(dbPath: string): Database.Database {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
+  // Durability to match the tamper-evident audit-log promise: FULL fsyncs each
+  // commit so the most recent timeline entries + head anchor survive OS crash /
+  // power loss, not just an app crash (WAL's default NORMAL would risk them).
+  db.pragma("synchronous = FULL");
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
   applySchema(db);
@@ -72,6 +76,12 @@ function migrate(db: Database.Database): void {
   ensure("handoffs", "context", "TEXT");
   ensure("handoffs", "related_files", "TEXT");
   ensure("handoffs", "open_questions", "TEXT");
+
+  // Drop indexes that turned out redundant/low-value (present on boards created
+  // by earlier versions): the implicit index on the UNIQUE seq column, and the
+  // low-selectivity actor_type index.
+  db.exec("DROP INDEX IF EXISTS idx_timeline_seq");
+  db.exec("DROP INDEX IF EXISTS idx_attr_type");
 }
 
 /**
@@ -115,6 +125,13 @@ CREATE TABLE IF NOT EXISTS redactions (
   reason     TEXT,
   actor      TEXT,
   created_at TEXT NOT NULL
+);
+
+-- Each agent's active session, kept in the DB (not a JSON file) so start/stop
+-- are transactional and cannot race between concurrent CLI processes.
+CREATE TABLE IF NOT EXISTS current_sessions (
+  agent      TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS signatures (
@@ -251,17 +268,18 @@ CREATE TABLE IF NOT EXISTS timeline (
  * to pre-existing tables during an upgrade.
  */
 const INDEXES = `
+-- NB: timeline.seq is INTEGER UNIQUE, which already creates an implicit index —
+-- so no explicit idx_timeline_seq (it would be a redundant duplicate B-tree).
+-- actor_type is too low-selectivity (2-3 values) for an index to help.
 CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_agent, read_at);
 CREATE INDEX IF NOT EXISTS idx_files_task ON files_changed(task_key);
 CREATE INDEX IF NOT EXISTS idx_files_session ON files_changed(session_id);
 CREATE INDEX IF NOT EXISTS idx_files_path ON files_changed(path);
-CREATE INDEX IF NOT EXISTS idx_timeline_seq ON timeline(seq);
 CREATE INDEX IF NOT EXISTS idx_timeline_session ON timeline(session_id);
 CREATE INDEX IF NOT EXISTS idx_risks_status ON risks(status);
 CREATE INDEX IF NOT EXISTS idx_attr_commit ON attributions(commit_sha);
 CREATE INDEX IF NOT EXISTS idx_attr_file ON attributions(file);
 CREATE INDEX IF NOT EXISTS idx_attr_actor ON attributions(actor);
-CREATE INDEX IF NOT EXISTS idx_attr_type ON attributions(actor_type);
 CREATE INDEX IF NOT EXISTS idx_reviews_commit ON reviews(commit_sha);
 CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions(finished_at, last_heartbeat);
 `;

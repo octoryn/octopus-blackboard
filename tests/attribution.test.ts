@@ -2,25 +2,20 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { git, initRepo, openBoard, tempDir } from "./helpers.js";
-import { loadConfig } from "../src/config.js";
-import { Board } from "../src/board.js";
-import { boardDir } from "./helpers.js";
 
 describe("sessions", () => {
   let dir: ReturnType<typeof tempDir>;
   beforeEach(() => (dir = tempDir()));
   afterEach(() => dir.dispose());
 
-  it("persists the active session across board instances via the pointer file", () => {
+  it("persists the active session across board instances via the DB pointer", () => {
     const b1 = openBoard(dir.path, { agent: "claude" });
     const session = b1.startSession("work");
     b1.close();
 
-    // A brand-new config resolves the same active session from the pointer file.
-    const cfg = loadConfig({ boardDir: boardDir(dir.path), agent: "claude" });
-    expect(cfg.sessionId).toBe(session.id);
-
-    const b2 = new Board(cfg);
+    // A brand-new Board resolves the same active session from the DB.
+    const b2 = openBoard(dir.path, { agent: "claude" });
+    expect(b2.activeSessionId()).toBe(session.id);
     b2.note("claude", "after restart");
     const events = b2.sessionTimeline(session.id);
     expect(events.some((e) => e.summary === "after restart")).toBe(true);
@@ -32,10 +27,10 @@ describe("sessions", () => {
     const s = b.startSession();
     b.stopSession();
     b.close();
-    const cfg = loadConfig({ boardDir: boardDir(dir.path), agent: "claude" });
-    expect(cfg.sessionId).toBeNull();
-    const finished = new Board(cfg).getSession(s.id);
-    expect(finished?.finishedAt).not.toBeNull();
+    const b2 = openBoard(dir.path, { agent: "claude" });
+    expect(b2.activeSessionId()).toBeNull();
+    expect(b2.getSession(s.id)?.finishedAt).not.toBeNull();
+    b2.close();
   });
 });
 

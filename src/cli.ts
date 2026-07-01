@@ -207,7 +207,7 @@ program
       }
     }
     // Real-time collision: another live session editing the same file right now.
-    const liveEditors = b.activeEditorsOfFile(path, loadConfig(overrides()).sessionId, 120_000).filter((e) => e.agent !== actor());
+    const liveEditors = b.activeEditorsOfFile(path, b.activeSessionId(), 120_000).filter((e) => e.agent !== actor());
     if (liveEditors.length > 0) {
       console.warn(`⚠ LIVE: ${liveEditors.map((e) => e.agent).join(", ")} also editing ${path} right now.`);
     }
@@ -930,8 +930,8 @@ program
   .action(() => {
     const b = board();
     const result = b.verifyChain();
-    const sigs = b.verifySignatures();
-    const signedThrough = b.signedThrough();
+    const sigs = b.verifySignatures(result); // reuse the one verification
+    const signedThrough = b.signedThrough(result);
     b.close();
     if (result.ok && (result.anchored || result.length === 0)) {
       console.log(`✓ chain intact — ${result.length} entr(ies) verified`);
