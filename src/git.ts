@@ -43,7 +43,8 @@ export function remoteUrl(cwd: string = process.cwd()): string | undefined {
 
 /** Resolve any revision (HEAD, a tag, short sha) to a full commit sha. */
 export function resolveRev(rev: string, cwd: string = process.cwd()): string | undefined {
-  return git(["rev-parse", "--verify", `${rev}^{commit}`], cwd);
+  // `--end-of-options` stops a dashed `rev` from being read as a rev-parse flag.
+  return git(["rev-parse", "--verify", "--end-of-options", `${rev}^{commit}`], cwd);
 }
 
 export interface CommitInfo {
@@ -55,28 +56,38 @@ export interface CommitInfo {
 }
 
 export function commitInfo(rev: string, cwd: string = process.cwd()): CommitInfo | undefined {
-  const out = git(["show", "-s", "--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%s", rev], cwd);
+  // `--end-of-options` stops flag parsing: a `rev` starting with `-` can never
+  // be treated as a git option (e.g. `--output=<path>` file write). See safeRev.
+  const out = git(["show", "-s", "--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%s", "--end-of-options", rev], cwd);
   if (!out) {
     return undefined;
   }
-  const [sha, author, authorEmail, date, subject] = out.split("\x1f");
+  const parts = out.split("\x1f");
+  if (parts.length < 5) {
+    return undefined;
+  }
+  const [sha, author, authorEmail, date, subject] = parts;
   return { sha, author, authorEmail, date, subject };
 }
 
 /** Files touched by a commit (paths relative to the repo root). */
 export function filesInCommit(rev: string, cwd: string = process.cwd()): string[] {
-  const out = git(["show", "--name-only", "--format=", "--no-renames", rev], cwd);
+  // `-z` disables path C-quoting so non-ASCII / whitespace filenames survive
+  // intact; `--end-of-options` blocks flag injection via a dashed `rev`.
+  const out = git(
+    ["show", "--name-only", "--format=", "--no-renames", "-z", "--end-of-options", rev],
+    cwd
+  );
   if (!out) {
     return [];
   }
-  return out
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
+  // NUL-delimited; with `--format=` a leading empty field precedes the paths.
+  return out.split("\0").filter((p) => p.length > 0);
 }
 
 /** Distinct Git authors that have touched a file (from `git log`). */
 export function fileAuthors(file: string, cwd: string = process.cwd()): string[] {
+  // `--` marks the end of options; `file` is unambiguously a pathspec.
   const out = git(["log", "--format=%an", "--", file], cwd);
   if (!out) {
     return [];
@@ -90,7 +101,9 @@ export function blameLine(
   line: number,
   cwd: string = process.cwd()
 ): { sha: string; author: string } | undefined {
-  const out = git(["blame", "-L", `${line},${line}`, "--porcelain", file], cwd);
+  // `--` ensures a `file` beginning with `-` is a pathspec, not a blame flag
+  // (e.g. `--contents=<path>`).
+  const out = git(["blame", "-L", `${line},${line}`, "--porcelain", "--", file], cwd);
   if (!out) {
     return undefined;
   }
@@ -108,10 +121,11 @@ export function blameLine(
  * additive: they never alter the commit or its sha. Returns true on success.
  */
 export function writeNote(rev: string, note: string, cwd: string = process.cwd()): boolean {
-  const res = git(["notes", "--ref=blackboard", "add", "-f", "-m", note, rev], cwd);
+  // `note` is data (bound after `-m`); `--end-of-options` guards the object rev.
+  const res = git(["notes", "--ref=blackboard", "add", "-f", "-m", note, "--end-of-options", rev], cwd);
   return res !== undefined;
 }
 
 export function readNote(rev: string, cwd: string = process.cwd()): string | undefined {
-  return git(["notes", "--ref=blackboard", "show", rev], cwd);
+  return git(["notes", "--ref=blackboard", "show", "--end-of-options", rev], cwd);
 }

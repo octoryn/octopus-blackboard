@@ -259,17 +259,32 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   ]
 }));
 
+/** Coerce an optional numeric arg to a non-negative integer, or a fallback. */
+function intArg(value: unknown, fallback: number): number {
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isInteger(n) && n >= 0 ? n : fallback;
+}
+
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: rawArgs } = request.params;
   const args = (rawArgs ?? {}) as Record<string, any>;
   const actor: string = args.agent ?? defaultAgent;
 
+  try {
+    return handleTool(name, args, actor);
+  } catch (err) {
+    // Never let a malformed request crash the server; surface a clean error.
+    return { isError: true, ...text(`Error in ${name}: ${err instanceof Error ? err.message : String(err)}`) };
+  }
+});
+
+function handleTool(name: string, args: Record<string, any>, actor: string) {
   switch (name) {
     case "board_status":
       return text(withBoard((b) => ({ ...b.status(actor), chain: b.verifyChain() })));
 
     case "board_timeline":
-      return text(withBoard((b) => b.timeline(args.limit ?? 30)));
+      return text(withBoard((b) => b.timeline(intArg(args.limit, 30))));
 
     case "board_note":
       return text(withBoard((b) => b.note(actor, String(args.text))));
@@ -381,12 +396,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         )
       );
 
-    case "board_who":
+    case "board_who": {
+      // Distinguish "no line given" from line 0/NaN — only blame on a valid
+      // positive integer line.
+      const line =
+        typeof args.line === "number" || typeof args.line === "string" ? Number(args.line) : NaN;
+      const hasLine = Number.isInteger(line) && line > 0;
       return text(
         withBoard((b) =>
-          args.line ? b.blame(String(args.file), Number(args.line)) ?? "No blame available." : b.whoTouched(String(args.file))
+          hasLine ? b.blame(String(args.file), line) ?? "No blame available." : b.whoTouched(String(args.file))
         )
       );
+    }
 
     case "board_explain":
       return text(withBoard((b) => b.explain(String(args.rev ?? "HEAD")) ?? `Nothing known about '${args.rev ?? "HEAD"}'.`));
@@ -397,7 +418,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     default:
       return text(`Unknown tool: ${name}`);
   }
-});
+}
 
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();

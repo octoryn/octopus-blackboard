@@ -151,14 +151,36 @@ export class Board {
         ...event,
         payload: event.payload === null ? null : JSON.stringify(event.payload)
       });
+    // Anchor the head (seq + hash) so tail truncation is detectable: deleting
+    // the newest rows leaves an internally-consistent chain, but no longer
+    // matches the recorded head. Same transaction as the insert.
+    this.db
+      .prepare("INSERT INTO meta (key, value) VALUES ('head_seq', @seq), ('head_hash', @hash) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run({ seq: String(event.seq), hash: event.hash });
     return event;
+  }
+
+  private headAnchor(): { seq: number; hash: string } | null {
+    const rows = this.db
+      .prepare("SELECT key, value FROM meta WHERE key IN ('head_seq','head_hash')")
+      .all() as { key: string; value: string }[];
+    const map = new Map(rows.map((r) => [r.key, r.value]));
+    const seq = map.get("head_seq");
+    const hash = map.get("head_hash");
+    return seq !== undefined && hash !== undefined ? { seq: Number(seq), hash } : null;
   }
 
   /** Re-walk the chain and confirm every hash links to its predecessor. */
   verifyChain(): ChainVerification {
     const rows = this.db.prepare("SELECT * FROM timeline ORDER BY seq ASC").all() as any[];
     let prevHash = GENESIS_HASH;
+    let prevSeq = 0;
     for (const row of rows) {
+      // Contiguity: seq must increment by exactly 1 (catches a missing middle
+      // row even before the hash check).
+      if (row.seq !== prevSeq + 1) {
+        return { ok: false, length: rows.length, brokenAtSeq: row.seq };
+      }
       const recomputed = Board.computeHash({
         seq: row.seq,
         at: row.at,
@@ -175,6 +197,18 @@ export class Board {
         return { ok: false, length: rows.length, brokenAtSeq: row.seq };
       }
       prevHash = row.hash;
+      prevSeq = row.seq;
+    }
+    // Tail-truncation check against the recorded head anchor. Boards written
+    // before anchoring existed have no anchor; those fall back to chain-internal
+    // checks only.
+    const anchor = this.headAnchor();
+    if (anchor) {
+      const lastSeq = rows.length > 0 ? rows[rows.length - 1].seq : 0;
+      const lastHash = rows.length > 0 ? rows[rows.length - 1].hash : GENESIS_HASH;
+      if (lastSeq !== anchor.seq || lastHash !== anchor.hash) {
+        return { ok: false, length: rows.length, brokenAtSeq: anchor.seq };
+      }
     }
     return { ok: true, length: rows.length, brokenAtSeq: null };
   }
@@ -283,7 +317,7 @@ export class Board {
       );
       return session;
     });
-    const session = tx();
+    const session = tx.immediate();
     setCurrentSession(this.config.boardDir, this.config.agent, session.id);
     return session;
   }
@@ -302,12 +336,14 @@ export class Board {
       const at = now();
       this.db.prepare("UPDATE sessions SET finished_at = ? WHERE id = ?").run(at, target);
       this.activeSession = target;
-      this.append(existing.agentName, "session-stop", "session stopped", "sessions", target, null);
+      // Legacy/migrated session rows may lack an agent_name; fall back to the
+      // acting agent so the timeline actor and pointer key are never null.
+      this.append(existing.agentName ?? this.config.agent, "session-stop", "session stopped", "sessions", target, null);
       return this.getSession(target);
     });
-    const session = tx();
+    const session = tx.immediate();
     if (session) {
-      clearCurrentSession(this.config.boardDir, session.agentName);
+      clearCurrentSession(this.config.boardDir, session.agentName ?? this.config.agent);
     }
     return session;
   }
@@ -346,7 +382,7 @@ export class Board {
       this.ensureAgent(actor);
       return this.append(actor, "note", text, null, null, null);
     });
-    return tx();
+    return tx.immediate();
   }
 
   /**
@@ -399,7 +435,7 @@ export class Board {
       this.append(actor, "claim", summary, "tasks", task.id, { key, conflict });
       return { task, conflict };
     });
-    return tx();
+    return tx.immediate();
   }
 
   /** Release a claim the actor holds. */
@@ -422,7 +458,7 @@ export class Board {
       this.append(actor, "release", `released "${key}"`, "tasks", task.id, { key });
       return task;
     });
-    return tx();
+    return tx.immediate();
   }
 
   /** Mark a task done. */
@@ -443,7 +479,7 @@ export class Board {
       this.append(actor, "complete", `completed "${key}"`, "tasks", task.id, { key });
       return task;
     });
-    return tx();
+    return tx.immediate();
   }
 
   listTasks(status?: string): Task[] {
@@ -480,7 +516,7 @@ export class Board {
       this.append(actor, "message", `message ${dest}: ${body}`, "messages", msg.id, { to });
       return msg;
     });
-    return tx();
+    return tx.immediate();
   }
 
   /** Messages addressed to `agent` (or broadcast) that are still unread. */
@@ -534,13 +570,24 @@ export class Board {
       });
       return dec;
     });
-    return tx();
+    return tx.immediate();
   }
 
   decisionsForCommit(commitSha: string): Decision[] {
+    // A stored related-commit `c` matches when it is a prefix of the query sha
+    // (or vice-versa), but only if it is at least a git short-sha (7 chars) —
+    // this rejects false positives from empty strings (which prefix-match every
+    // commit) and 1–2 char typos. Non-string elements are coerced defensively.
+    const matches = (c: unknown, sha: string): boolean => {
+      const s = String(c);
+      if (s.length < 7) {
+        return s.length === sha.length && s === sha; // only an exact full match
+      }
+      return s.startsWith(sha) || sha.startsWith(s);
+    };
     return (this.db.prepare("SELECT * FROM decisions ORDER BY created_at DESC").all() as any[])
       .map(rowToDecision)
-      .filter((d) => d.relatedCommits.some((c) => c.startsWith(commitSha) || commitSha.startsWith(c)));
+      .filter((d) => d.relatedCommits.some((c) => matches(c, commitSha)));
   }
 
   evidence(actor: string, ref: string, note: string | null = null, target: string | null = null): Evidence {
@@ -555,7 +602,7 @@ export class Board {
       this.append(actor, "evidence", `evidence: ${ref}`, "evidence", ev.id, { target });
       return ev;
     });
-    return tx();
+    return tx.immediate();
   }
 
   fileChanged(actor: string, path: string, change: FileChangeKind, taskKey: string | null = null): FileChange {
@@ -578,7 +625,7 @@ export class Board {
       this.append(actor, "file", `${change}: ${path}`, "files_changed", fc.id, { taskKey });
       return fc;
     });
-    return tx();
+    return tx.immediate();
   }
 
   /** Files another agent reports touching for a task — conflict awareness. */
@@ -609,7 +656,7 @@ export class Board {
       this.append(actor, "risk", `risk [${severity}]: ${title}`, "risks", r.id, null);
       return r;
     });
-    return tx();
+    return tx.immediate();
   }
 
   listRisks(status: string | null = "open"): Risk[] {
@@ -665,7 +712,7 @@ export class Board {
       });
       return h;
     });
-    return tx();
+    return tx.immediate();
   }
 
   // --- attribution -----------------------------------------------------------
@@ -741,7 +788,7 @@ export class Board {
         file: attr.file
       });
     });
-    tx();
+    tx.immediate();
     return attr;
   }
 
@@ -792,16 +839,18 @@ export class Board {
           createdAt: now()
         });
       }
+      // A link event spans N attribution rows, so it references the commit
+      // itself (ref_table "commit"), not any single attribution row id.
       this.append(
         opts.actor ?? ident.actor,
         "link",
         `linked ${sha.slice(0, 8)} → ${actorType} ${opts.actor ?? ident.actor} (${targets.length} file${targets.length === 1 ? "" : "s"})`,
-        "attributions",
+        "commit",
         sha,
         { sha, files }
       );
     });
-    tx();
+    tx.immediate();
     if (opts.writeNote) {
       const label = `${ident.cli ?? ident.actor}${ident.model ? ` (${ident.model})` : ""}`;
       git.writeNote(sha, `blackboard: produced by ${label}, session ${ident.sessionId ?? "n/a"}`);
@@ -865,7 +914,7 @@ export class Board {
         { commit: sha, outcome: rev.outcome }
       );
     });
-    tx();
+    tx.immediate();
     return rev;
   }
 
@@ -879,32 +928,55 @@ export class Board {
 
   // --- queries ---------------------------------------------------------------
 
-  /** Who changed a file: Git authors, blackboard sessions, AI attributions. */
+  /**
+   * Who touched a file: Git authors, distinct (session, agent) pairs that
+   * recorded a change, and commit attributions. The `agent` is the actor name
+   * recorded on the change; one entry per distinct (session, agent), collapsing
+   * repeated edits within a session to a single row (its latest timestamp).
+   */
   whoTouched(file: string): {
     gitAuthors: string[];
     attributions: Attribution[];
     sessions: { sessionId: string | null; agent: string; at: string }[];
   } {
     const rows = this.db
-      .prepare("SELECT DISTINCT session_id, agent_id, created_at FROM files_changed WHERE path = ? ORDER BY created_at DESC")
+      .prepare(
+        `SELECT session_id, agent_id, MAX(created_at) AS at FROM files_changed
+         WHERE path = ?
+         GROUP BY session_id, agent_id ORDER BY at DESC`
+      )
       .all(file) as any[];
     return {
       gitAuthors: git.fileAuthors(file),
       attributions: this.attributionsForFile(file),
-      sessions: rows.map((r) => ({ sessionId: r.session_id, agent: r.agent_id, at: r.created_at }))
+      sessions: rows.map((r) => ({ sessionId: r.session_id, agent: r.agent_id, at: r.at }))
     };
   }
 
-  /** Commits attributed to an actor, CLI, or provider (matched broadly). */
+  /**
+   * Commits attributed to an actor, CLI, provider, or model (matched broadly
+   * across those columns). Returns the actual matching attribution rows, so the
+   * reported `actor`/`cli` always reflect a row that matched the query — never
+   * an unrelated attribution on the same commit.
+   */
   commitsByActor(query: string): { commit: string; actor: string; cli: string | null; at: string }[] {
     const rows = this.db
       .prepare(
-        `SELECT commit_sha, actor, cli, MIN(created_at) AS at FROM attributions
+        `SELECT DISTINCT commit_sha, actor, cli, created_at FROM attributions
          WHERE actor = ? OR cli = ? OR provider = ? OR model = ?
-         GROUP BY commit_sha ORDER BY at DESC`
+         ORDER BY created_at DESC`
       )
       .all(query, query, query, query) as any[];
-    return rows.map((r) => ({ commit: r.commit_sha, actor: r.actor, cli: r.cli, at: r.at }));
+    // Collapse to one row per (commit, actor, cli); keep the earliest time.
+    const seen = new Map<string, { commit: string; actor: string; cli: string | null; at: string }>();
+    for (const r of rows) {
+      const key = `${r.commit_sha} ${r.actor} ${r.cli ?? ""}`;
+      const existing = seen.get(key);
+      if (!existing || r.created_at < existing.at) {
+        seen.set(key, { commit: r.commit_sha, actor: r.actor, cli: r.cli, at: r.created_at });
+      }
+    }
+    return [...seen.values()].sort((x, y) => (x.at < y.at ? 1 : -1));
   }
 
   /** AI-attributed commits with no human review — the accountability gap. */
@@ -922,12 +994,18 @@ export class Board {
     return rows.map((r) => ({ commit: r.commit_sha, actor: r.actor, at: r.at }));
   }
 
-  /** Files touched by BOTH agents — joint-modification / collision surface. */
+  /**
+   * Files touched by BOTH agents — joint-modification / collision surface.
+   * Paths are normalized (leading `./` stripped) so a CLI-relative form and
+   * git's repo-root form for the same file reconcile. Case and deeper path
+   * differences are not reconciled.
+   */
   jointFiles(agentA: string, agentB: string): string[] {
+    const norm = (p: string): string => p.replace(/^\.\//, "");
     const filesOf = (agent: string): Set<string> => {
       const fc = this.db.prepare("SELECT DISTINCT path FROM files_changed WHERE agent_id = ?").all(agent) as any[];
       const at = this.db.prepare("SELECT DISTINCT file FROM attributions WHERE actor = ? AND file IS NOT NULL").all(agent) as any[];
-      return new Set([...fc.map((r) => r.path), ...at.map((r) => r.file)]);
+      return new Set([...fc.map((r) => norm(r.path)), ...at.map((r) => norm(r.file))]);
     };
     const a = filesOf(agentA);
     const b = filesOf(agentB);
@@ -1021,7 +1099,10 @@ function parseJsonArray(value: unknown): string[] {
   }
   try {
     const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : [];
+    // Coerce every element to a string so the `string[]` type is honored even
+    // if a caller stored non-strings (which would otherwise crash consumers
+    // that call string methods on the elements).
+    return Array.isArray(parsed) ? parsed.map((e) => String(e)) : [];
   } catch {
     return [];
   }

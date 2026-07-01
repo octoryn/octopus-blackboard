@@ -82,10 +82,22 @@ Everything the blackboard records — every attribution, review, session
 boundary, and decision — also lands in the `timeline` hash chain, so after the
 fact you cannot quietly alter *who produced what* without `verify` failing.
 
+Each entry's hash covers the previous entry's hash plus a strictly-incrementing
+`seq`, and the current head (`seq` + `hash`) is anchored in a `meta` row.
+`verify` checks three things: every link recomputes, `seq` is contiguous (a
+deleted middle row is caught), and the surviving tail still matches the anchored
+head (a deleted *newest* row is caught too). To also defeat an attacker who
+edits the anchor, periodically record the head hash somewhere outside the DB
+(a commit, a log, a second machine) — the board exposes it via `verify`.
+
 The chain protects the blackboard's own records. It does **not** prove the Git
 commit itself is unmodified — that is Git's job (and, if you want cryptographic
 commit integrity, signed commits). The two layers compose: Git vouches for the
 code; the blackboard vouches for the attribution narrative around it.
+
+Writes serialize safely when several CLIs share one board: each mutation runs in
+an *immediate* SQLite transaction, so concurrent writers take turns (bounded by
+`busy_timeout`) rather than one silently failing.
 
 ## Boundaries (by design)
 

@@ -77,6 +77,11 @@ function migrate(db: Database.Database): void {
  * append-only hash chain every other write also records into.
  */
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS agents (
   id         TEXT PRIMARY KEY,
   name       TEXT NOT NULL UNIQUE,

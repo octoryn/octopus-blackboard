@@ -406,7 +406,13 @@ program
   .description("who changed this file (git authors + AI sessions)")
   .action((file, opts) => {
     const b = board();
-    if (opts.line) {
+    if (opts.line !== undefined) {
+      if (!Number.isInteger(opts.line) || opts.line < 1) {
+        b.close();
+        console.error("--line must be a positive integer.");
+        process.exitCode = 1;
+        return;
+      }
       const bl = b.blame(file, opts.line);
       b.close();
       if (!bl) {
