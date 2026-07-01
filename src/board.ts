@@ -29,8 +29,11 @@ import type {
   ReviewOutcome,
   Risk,
   RiskSeverity,
+  RiskLevel,
   Session,
   Task,
+  TaskCard,
+  TaskStatus,
   TimelineEvent,
 } from "./types.js";
 
@@ -734,24 +737,25 @@ export class Board {
       let conflict: string | null = null;
       let task: Task;
       if (!existing) {
-        task = {
-          id: id(),
-          key,
-          title,
-          status: "claimed",
-          createdBy: actor,
-          claimedBy: actor,
-          claimedAt: at,
-          releasedAt: null,
-          createdAt: at,
-          updatedAt: at,
-        };
         this.db
           .prepare(
-            `INSERT INTO tasks (id, key, title, status, created_by, claimed_by, claimed_at, released_at, created_at, updated_at)
-             VALUES (@id, @key, @title, @status, @createdBy, @claimedBy, @claimedAt, @releasedAt, @createdAt, @updatedAt)`,
+            `INSERT INTO tasks (id, key, number, title, status, created_by, claimed_by, claimed_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'claimed', ?, ?, ?, ?, ?)`,
           )
-          .run(task);
+          .run(
+            id(),
+            key,
+            this.nextTaskNumber(),
+            title,
+            actor,
+            actor,
+            at,
+            at,
+            at,
+          );
+        task = rowToTask(
+          this.db.prepare("SELECT * FROM tasks WHERE key = ?").get(key),
+        );
       } else {
         if (
           existing.claimed_by &&
@@ -843,6 +847,258 @@ export class Board {
           .prepare("SELECT * FROM tasks ORDER BY updated_at DESC")
           .all() as any[]);
     return rows.map(rowToTask);
+  }
+
+  // --- tasks (kanban) --------------------------------------------------------
+
+  private nextTaskNumber(): number {
+    const row = this.db
+      .prepare("SELECT COALESCE(MAX(number), 0) + 1 AS n FROM tasks")
+      .get() as { n: number };
+    return row.n;
+  }
+
+  getTask(key: string): Task | undefined {
+    const row = this.db.prepare("SELECT * FROM tasks WHERE key = ?").get(key);
+    return row ? rowToTask(row) : undefined;
+  }
+
+  /** Resolve a task by key OR by its human number (`"145"` / `"#145"`). */
+  resolveTask(ref: string): Task | undefined {
+    const m = /^#?(\d+)$/.exec(ref.trim());
+    if (m) {
+      const row = this.db
+        .prepare("SELECT * FROM tasks WHERE number = ?")
+        .get(Number(m[1]));
+      if (row) return rowToTask(row);
+    }
+    return this.getTask(ref);
+  }
+
+  /**
+   * Create or update a task's kanban fields (title, description, project,
+   * impact/blast-radius, risk level). Creates the task (with a fresh number) if
+   * the key is new; otherwise updates only the provided fields.
+   */
+  defineTask(
+    actor: string,
+    key: string,
+    opts: {
+      title?: string | null;
+      description?: string | null;
+      project?: string | null;
+      impact?: string | null;
+      riskLevel?: RiskLevel | null;
+    } = {},
+  ): Task {
+    const tx = this.db.transaction((): Task => {
+      this.ensureAgent(actor);
+      const at = now();
+      const existing = this.getTask(key);
+      if (!existing) {
+        this.db
+          .prepare(
+            `INSERT INTO tasks (id, key, number, title, description, status, project, impact, risk_level, created_by, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            id(),
+            key,
+            this.nextTaskNumber(),
+            opts.title ?? null,
+            opts.description ?? null,
+            opts.project ?? null,
+            opts.impact ?? null,
+            opts.riskLevel ?? null,
+            actor,
+            at,
+            at,
+          );
+      } else {
+        this.db
+          .prepare(
+            `UPDATE tasks SET title = COALESCE(?, title), description = COALESCE(?, description),
+               project = COALESCE(?, project), impact = COALESCE(?, impact),
+               risk_level = COALESCE(?, risk_level), updated_at = ? WHERE key = ?`,
+          )
+          .run(
+            opts.title ?? null,
+            opts.description ?? null,
+            opts.project ?? null,
+            opts.impact ?? null,
+            opts.riskLevel ?? null,
+            at,
+            key,
+          );
+      }
+      const task = this.getTask(key)!;
+      this.append(
+        actor,
+        "task",
+        `defined task #${task.number} "${key}"`,
+        "tasks",
+        task.id,
+        { key },
+      );
+      return task;
+    });
+    return tx.immediate();
+  }
+
+  /**
+   * Assign a task to an agent and notify them — records the assignee AND drops a
+   * message in that agent's inbox ("please look at task #145 …"). This is the
+   * passive form of "notify Claude to look at 145": the board records the ask;
+   * the agent reads its inbox and decides to act. The board never launches it.
+   */
+  assign(actor: string, key: string, toAgent: string): Task | undefined {
+    const tx = this.db.transaction((): Task | undefined => {
+      this.ensureAgent(actor);
+      this.ensureAgent(toAgent);
+      const task = this.getTask(key);
+      if (!task) {
+        return undefined;
+      }
+      const at = now();
+      this.db
+        .prepare(
+          "INSERT OR IGNORE INTO task_assignees (task_key, agent, assigned_by, assigned_at) VALUES (?, ?, ?, ?)",
+        )
+        .run(key, toAgent, actor, at);
+      // The notification: a message in the assignee's inbox.
+      const label = `task #${task.number}${task.title ? ` "${task.title}"` : ` (${key})`}`;
+      const where = task.project ? ` · project ${task.project}` : "";
+      const risk = task.riskLevel ? ` · risk ${task.riskLevel}` : "";
+      this.message(actor, toAgent, `please look at ${label}${where}${risk}`);
+      this.append(
+        actor,
+        "assign",
+        `assigned ${label} → ${toAgent}`,
+        "tasks",
+        task.id,
+        {
+          key,
+          to: toAgent,
+        },
+      );
+      return this.getTask(key);
+    });
+    return tx.immediate();
+  }
+
+  /** Report progress (0–100). Moves status to in-progress, or done at 100. */
+  setProgress(actor: string, key: string, progress: number): Task | undefined {
+    const tx = this.db.transaction((): Task | undefined => {
+      this.ensureAgent(actor);
+      const task = this.getTask(key);
+      if (!task) {
+        return undefined;
+      }
+      const p = Math.max(0, Math.min(100, Math.round(progress)));
+      const status =
+        p >= 100
+          ? "done"
+          : p > 0 && (task.status === "open" || task.status === "claimed")
+            ? "in-progress"
+            : task.status;
+      this.db
+        .prepare(
+          "UPDATE tasks SET progress = ?, status = ?, updated_at = ? WHERE key = ?",
+        )
+        .run(p, status, now(), key);
+      this.append(
+        actor,
+        "progress",
+        `task #${task.number} "${key}" → ${p}%`,
+        "tasks",
+        task.id,
+        { key, progress: p },
+      );
+      return this.getTask(key);
+    });
+    return tx.immediate();
+  }
+
+  /** Set a task's status directly (e.g. blocked). */
+  setTaskStatus(
+    actor: string,
+    key: string,
+    status: TaskStatus,
+  ): Task | undefined {
+    const tx = this.db.transaction((): Task | undefined => {
+      this.ensureAgent(actor);
+      const task = this.getTask(key);
+      if (!task) {
+        return undefined;
+      }
+      this.db
+        .prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE key = ?")
+        .run(status, now(), key);
+      this.append(
+        actor,
+        "task-status",
+        `task #${task.number} "${key}" → ${status}`,
+        "tasks",
+        task.id,
+        { key, status },
+      );
+      return this.getTask(key);
+    });
+    return tx.immediate();
+  }
+
+  assigneesFor(key: string): string[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT agent FROM task_assignees WHERE task_key = ? ORDER BY assigned_at ASC",
+        )
+        .all(key) as { agent: string }[]
+    ).map((r) => r.agent);
+  }
+
+  private risksForTask(key: string): Risk[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT * FROM risks WHERE task_key = ? ORDER BY created_at DESC",
+        )
+        .all(key) as any[]
+    ).map(rowToRisk);
+  }
+
+  /**
+   * How many agents are actively working the task right now: assignees (or the
+   * claimer) that have an active (heartbeating) session.
+   */
+  private activeAgentsOnTask(key: string): number {
+    const active = new Set(this.activeSessions().map((s) => s.agentName));
+    const involved = new Set(this.assigneesFor(key));
+    const claimer = this.getTask(key)?.claimedBy;
+    if (claimer) involved.add(claimer);
+    return [...involved].filter((a) => active.has(a)).length;
+  }
+
+  /** Full kanban card for one task. */
+  taskCard(key: string): TaskCard | undefined {
+    const task = this.getTask(key);
+    if (!task) {
+      return undefined;
+    }
+    return {
+      task,
+      assignees: this.assigneesFor(key),
+      activeAgents: this.activeAgentsOnTask(key),
+      impactFiles: [...new Set(this.filesForTask(key).map((f) => f.path))],
+      risks: this.risksForTask(key),
+    };
+  }
+
+  /** Every task as a kanban card, newest-updated first. */
+  listTaskCards(): TaskCard[] {
+    return this.listTasks()
+      .map((t) => this.taskCard(t.key))
+      .filter((c): c is TaskCard => c !== undefined);
   }
 
   /** Leave a message for another agent, or broadcast (to = null). */
@@ -1034,7 +1290,12 @@ export class Board {
     ).map(rowToFileChange);
   }
 
-  risk(actor: string, title: string, severity: RiskSeverity = "medium"): Risk {
+  risk(
+    actor: string,
+    title: string,
+    severity: RiskSeverity = "medium",
+    taskKey: string | null = null,
+  ): Risk {
     const tx = this.db.transaction((): Risk => {
       this.ensureAgent(actor);
       const r: Risk = {
@@ -1043,17 +1304,19 @@ export class Board {
         title,
         severity,
         status: "open",
+        taskKey,
         createdAt: now(),
       };
       this.db
         .prepare(
-          "INSERT INTO risks (id, agent_id, title, severity, status, created_at) VALUES (@id, @agentId, @title, @severity, @status, @createdAt)",
+          "INSERT INTO risks (id, agent_id, title, severity, status, task_key, created_at) VALUES (@id, @agentId, @title, @severity, @status, @taskKey, @createdAt)",
         )
         .run(r);
+      const on = taskKey ? ` (task ${taskKey})` : "";
       this.append(
         actor,
         "risk",
-        `risk [${severity}]: ${title}`,
+        `risk [${severity}]: ${title}${on}`,
         "risks",
         r.id,
         null,
@@ -2288,8 +2551,14 @@ function rowToTask(r: any): Task {
   return {
     id: r.id,
     key: r.key,
+    number: r.number ?? null,
     title: r.title,
+    description: r.description ?? null,
     status: r.status,
+    project: r.project ?? null,
+    impact: r.impact ?? null,
+    riskLevel: r.risk_level ?? null,
+    progress: r.progress ?? 0,
     createdBy: r.created_by,
     claimedBy: r.claimed_by,
     claimedAt: r.claimed_at,
@@ -2317,6 +2586,7 @@ function rowToRisk(r: any): Risk {
     title: r.title,
     severity: r.severity,
     status: r.status,
+    taskKey: r.task_key ?? null,
     createdAt: r.created_at,
   };
 }

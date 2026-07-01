@@ -54,6 +54,8 @@ export function serve(board: Board, port: number, host = "127.0.0.1"): Server {
         }
         case "/api/report":
           return json(res, board.report());
+        case "/api/tasks":
+          return json(res, board.listTaskCards());
         case "/api/timeline":
           return json(
             res,
@@ -110,6 +112,18 @@ const DASHBOARD_HTML = `<!doctype html>
   .tl .seq { color: var(--muted); min-width: 34px; }
   .tl .who { color: var(--accent); min-width: 90px; }
   code { color: var(--muted); }
+  .kb { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .kb .col h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+  .card { background: var(--bg); border: 1px solid var(--line); border-left: 3px solid var(--muted); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+  .card.risk-high { border-left-color: var(--bad); }
+  .card.risk-medium { border-left-color: var(--warn); }
+  .card.risk-low { border-left-color: var(--ok); }
+  .card .num { color: var(--accent); font-weight: 600; }
+  .card .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .card .pbar { height: 5px; background: var(--line); border-radius: 999px; overflow: hidden; margin: 8px 0 4px; }
+  .card .pbar > span { display: block; height: 100%; background: var(--accent); }
+  .chip { display:inline-block; background: var(--line); border-radius: 999px; padding: 0 6px; font-size: 11px; margin-right: 4px; }
+  @media (max-width: 900px) { .kb { grid-template-columns: 1fr 1fr; } }
 </style>
 </head>
 <body>
@@ -119,6 +133,7 @@ const DASHBOARD_HTML = `<!doctype html>
   <span class="tag" id="trust">…</span>
   <span class="tag muted">read-only · auto-refresh 2s</span>
 </header>
+<div class="panel" style="margin:24px 24px 0;"><h2>Kanban</h2><div class="kb" id="kanban"></div></div>
 <div class="grid">
   <div class="panel"><h2>Accountability</h2><div id="report"></div></div>
   <div class="panel"><h2>On the board</h2><div id="status"></div></div>
@@ -170,6 +185,27 @@ async function refresh() {
       ? sessions.map(s => '<div class="row">' + (s.finishedAt ? '<span class="muted">closed</span>' : '<span class="ok">OPEN</span>') +
           ' ' + esc(s.agentName) + ' <code>' + esc(s.id.slice(0,8)) + '</code> <span class="muted">' + esc(s.gitBranch || "-") + '</span></div>').join("")
       : '<div class="muted">no sessions</div>';
+
+    const cards = await get("/api/tasks");
+    const cols = ["open", "claimed", "in-progress", "blocked", "done"];
+    $("kanban").innerHTML = cols.map(col => {
+      const inCol = cards.filter(c => c.task.status === col);
+      const cardsHtml = inCol.map(c => {
+        const t = c.task;
+        const owner = (c.assignees.length ? c.assignees : (t.claimedBy ? [t.claimedBy] : []));
+        const ownerHtml = owner.map(a => '<span class="chip">' + esc(a) + '</span>').join("");
+        const agents = c.activeAgents > 0 ? '<span class="chip">⚡' + c.activeAgents + ' active</span>' : "";
+        const proj = t.project ? '<span class="chip">' + esc(t.project) + '</span>' : "";
+        const risk = t.riskLevel ? '<span class="chip">!' + esc(t.riskLevel) + '</span>' : "";
+        return '<div class="card risk-' + esc(t.riskLevel || "none") + '">' +
+          '<div><span class="num">#' + t.number + '</span> ' + esc(t.title || t.key) + '</div>' +
+          (t.impact ? '<div class="meta">' + esc(t.impact) + '</div>' : (c.impactFiles.length ? '<div class="meta">' + c.impactFiles.length + ' file(s)</div>' : "")) +
+          '<div class="pbar"><span style="width:' + (t.progress||0) + '%"></span></div>' +
+          '<div class="meta">' + (t.progress||0) + '% ' + ownerHtml + agents + proj + risk + '</div>' +
+        '</div>';
+      }).join("") || '<div class="muted" style="font-size:12px">—</div>';
+      return '<div class="col"><h3>' + col + ' (' + inCol.length + ')</h3>' + cardsHtml + '</div>';
+    }).join("");
 
     $("timeline").innerHTML = timeline.slice().reverse().map(e =>
       '<div class="row"><span class="seq">#' + e.seq + '</span><span class="who">' + esc(e.actor) + '</span><span>' + esc(e.summary) + '</span></div>').join("");

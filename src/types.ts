@@ -100,24 +100,52 @@ export interface Review {
   createdAt: string;
 }
 
-export type TaskStatus = "open" | "claimed" | "done" | "blocked";
+export type TaskStatus =
+  "open" | "claimed" | "in-progress" | "blocked" | "done";
+export type RiskLevel = "low" | "medium" | "high";
 
 /**
  * A unit of work. `key` is a human slug (unique) used to claim/hand off work;
- * `claimedBy` is the single agent currently holding it — the basis for
- * conflict awareness (two agents claiming the same key).
+ * `number` is a stable, human-friendly id ("task #145"); `claimedBy` is the
+ * single agent currently holding it — the basis for conflict awareness. The
+ * kanban card fields (description/project/impact/riskLevel/progress) describe
+ * what it is, where, how big the blast radius is, and how far along it is.
  */
 export interface Task {
   id: string;
   key: string;
+  /** Stable human-friendly number, e.g. 145 (unique per board). */
+  number: number | null;
   title: string | null;
+  /** What the task actually is (beyond the one-line title). */
+  description: string | null;
   status: TaskStatus;
+  /** Which project/repo it belongs to. */
+  project: string | null;
+  /** The change surface — files/areas this touches. */
+  impact: string | null;
+  /** How risky the change is. */
+  riskLevel: RiskLevel | null;
+  /** Completion 0–100. */
+  progress: number;
   createdBy: string | null;
   claimedBy: string | null;
   claimedAt: string | null;
   releasedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * A kanban card: a task plus the derived view — who's assigned, how many agents
+ * are actively on it, the files it has touched, and its linked risks.
+ */
+export interface TaskCard {
+  task: Task;
+  assignees: string[];
+  activeAgents: number;
+  impactFiles: string[];
+  risks: Risk[];
 }
 
 /** A note left for another agent (to=null is a broadcast to the board). */
@@ -180,6 +208,8 @@ export interface Risk {
   title: string;
   severity: RiskSeverity;
   status: RiskStatus;
+  /** Task this risk is attached to, if any. */
+  taskKey: string | null;
   createdAt: string;
 }
 

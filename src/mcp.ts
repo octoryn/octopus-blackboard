@@ -100,6 +100,69 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: "board_task_define",
+      description:
+        "Create or update a task's kanban fields: title, description (what it is), project, impact (change surface), and risk level. New keys get a stable task number.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: { type: "string" },
+          title: { type: "string" },
+          description: { type: "string" },
+          project: { type: "string" },
+          impact: { type: "string" },
+          riskLevel: { type: "string", enum: ["low", "medium", "high"] },
+          ...AGENT_PROP,
+        },
+        required: ["key"],
+      },
+    },
+    {
+      name: "board_task",
+      description:
+        "Get a task's full kanban card (status, progress, assignees, active-agent count, impacted files, linked risks) by key or number (#145).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ref: { type: "string", description: "task key or number" },
+        },
+        required: ["ref"],
+      },
+    },
+    {
+      name: "board_tasks",
+      description: "List all tasks as kanban cards (for a board/kanban view).",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "board_assign",
+      description:
+        "Assign a task to an agent and notify them — records the assignee AND leaves a 'please look at task #N' message in that agent's inbox. Passive: the board records the ask; the agent reads its inbox and decides to act. Never launches the agent.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ref: { type: "string", description: "task key or number" },
+          to: { type: "string", description: "agent to notify" },
+          ...AGENT_PROP,
+        },
+        required: ["ref", "to"],
+      },
+    },
+    {
+      name: "board_progress",
+      description:
+        "Report task progress 0–100 (moves it to in-progress, or done at 100). Use this from an agent as it works a task so the kanban shows a live progress bar.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ref: { type: "string", description: "task key or number" },
+          percent: { type: "number" },
+          ...AGENT_PROP,
+        },
+        required: ["ref", "percent"],
+      },
+    },
+    {
       name: "board_message",
       description:
         "Leave a message for another agent (or broadcast with to='all').",
@@ -533,6 +596,54 @@ function handleTool(name: string, args: Record<string, any>, actor: string) {
                 warning: `Task "${args.key}" is also held by ${r.conflict}.`,
               }
             : r;
+        }),
+      );
+
+    case "board_task_define":
+      return text(
+        withBoard((b) =>
+          b.defineTask(actor, String(args.key), {
+            title: args.title ?? null,
+            description: args.description ?? null,
+            project: args.project ?? null,
+            impact: args.impact ?? null,
+            riskLevel: args.riskLevel ?? null,
+          }),
+        ),
+      );
+
+    case "board_task":
+      return text(
+        withBoard((b) => {
+          const t = b.resolveTask(String(args.ref));
+          return t
+            ? (b.taskCard(t.key) ?? `No task '${args.ref}'.`)
+            : `No task '${args.ref}'.`;
+        }),
+      );
+
+    case "board_tasks":
+      return text(withBoard((b) => b.listTaskCards()));
+
+    case "board_assign":
+      return text(
+        withBoard((b) => {
+          const t = b.resolveTask(String(args.ref));
+          return t
+            ? (b.assign(actor, t.key, String(args.to)) ??
+                `No task '${args.ref}'.`)
+            : `No task '${args.ref}'.`;
+        }),
+      );
+
+    case "board_progress":
+      return text(
+        withBoard((b) => {
+          const t = b.resolveTask(String(args.ref));
+          return t
+            ? (b.setProgress(actor, t.key, Number(args.percent)) ??
+                `No task '${args.ref}'.`)
+            : `No task '${args.ref}'.`;
         }),
       );
 

@@ -296,6 +296,28 @@ tamper-evidence against an attacker with database write access, anchor the head
 hash externally (a commit, a log, a second machine) — `verify` shows an
 `unanchored` warning when it can't confirm the tail.
 
+## Tasks & kanban
+
+Tasks are kanban cards — number, content, owner (which agent / CLI), project,
+blast radius, risk, and live progress. **"Notifying an agent" is passive:**
+assigning a task drops a "please look at task #N" message in that agent's inbox;
+the agent reads it and decides to act — the board never launches anyone.
+
+```bash
+blackboard task add auth-mw --title "Refactor auth middleware" \
+  --project octopus-api --impact "src/auth.ts, src/db.ts" --risk high
+blackboard assign 1 claude       # → drops "please look at task #1 …" in claude's inbox
+blackboard progress 1 40         # → moves #1 to in-progress, 40%
+blackboard tasks                 # kanban view, grouped by status
+blackboard task show 1           # full card: owner, project, impact, risk, files
+```
+
+The read-only `serve` dashboard renders these as a live kanban (columns by
+status; each card shows number, title, a progress bar, assignees, active-agent
+count, project, and a risk-coloured left border). Agents drive it via the MCP
+tools `board_task_define`, `board_assign`, `board_progress`, `board_tasks` — an
+agent calls `board_progress` as it works so the bar moves in real time.
+
 ## Visibility
 
 ```bash
@@ -344,7 +366,8 @@ Codex as `codex`); override with `--agent`. The board is auto-discovered from
 pointed at the same `.octoboard/` now share one board — that's the whole point.
 
 Tools exposed — coordination: `board_status`, `board_timeline`, `board_note`,
-`board_claim`, `board_message`, `board_inbox`, `board_handoffs`,
+`board_claim`, `board_task_define`, `board_task`, `board_tasks`, `board_assign`,
+`board_progress`, `board_message`, `board_inbox`, `board_handoffs`,
 `board_decision`, `board_evidence`, `board_file_changed`, `board_risk`,
 `board_handoff`, `board_heartbeat`, `board_since`; attribution: `session_start`,
 `session_stop`, `board_link`, `board_attribute`, `board_review`, `board_who`,

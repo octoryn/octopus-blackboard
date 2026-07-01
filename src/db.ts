@@ -81,6 +81,21 @@ function migrate(db: Database.Database): void {
   ensure("handoffs", "related_files", "TEXT");
   ensure("handoffs", "open_questions", "TEXT");
 
+  // tasks: kanban fields
+  ensure("tasks", "number", "INTEGER");
+  ensure("tasks", "description", "TEXT");
+  ensure("tasks", "project", "TEXT");
+  ensure("tasks", "impact", "TEXT");
+  ensure("tasks", "risk_level", "TEXT");
+  ensure("tasks", "progress", "INTEGER NOT NULL DEFAULT 0");
+  ensure("risks", "task_key", "TEXT");
+  // Backfill stable, unique numbers for tasks created before numbering existed,
+  // in creation order (rowid is unique, so no two tasks collide).
+  db.exec(
+    `UPDATE tasks SET number = (SELECT COUNT(*) FROM tasks t2 WHERE t2.rowid <= tasks.rowid)
+     WHERE number IS NULL`,
+  );
+
   // Drop indexes that turned out redundant/low-value (present on boards created
   // by earlier versions): the implicit index on the UNIQUE seq column, and the
   // low-selectivity actor_type index.
@@ -151,14 +166,31 @@ CREATE TABLE IF NOT EXISTS signatures (
 CREATE TABLE IF NOT EXISTS tasks (
   id          TEXT PRIMARY KEY,
   key         TEXT NOT NULL UNIQUE,
+  number      INTEGER,
   title       TEXT,
+  description TEXT,
   status      TEXT NOT NULL DEFAULT 'open',
+  project     TEXT,
+  impact      TEXT,
+  risk_level  TEXT,
+  progress    INTEGER NOT NULL DEFAULT 0,
   created_by  TEXT,
   claimed_by  TEXT,
   claimed_at  TEXT,
   released_at TEXT,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
+);
+
+-- Agents assigned to a task (many-to-many). Assigning is how "notify Claude to
+-- look at task #145" is recorded — it also drops a message in the assignee's
+-- inbox. The board records the assignment; it never launches the agent.
+CREATE TABLE IF NOT EXISTS task_assignees (
+  task_key    TEXT NOT NULL,
+  agent       TEXT NOT NULL,
+  assigned_by TEXT,
+  assigned_at TEXT NOT NULL,
+  PRIMARY KEY (task_key, agent)
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -207,6 +239,7 @@ CREATE TABLE IF NOT EXISTS risks (
   title      TEXT NOT NULL,
   severity   TEXT NOT NULL DEFAULT 'medium',
   status     TEXT NOT NULL DEFAULT 'open',
+  task_key   TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -286,4 +319,7 @@ CREATE INDEX IF NOT EXISTS idx_attr_file ON attributions(file);
 CREATE INDEX IF NOT EXISTS idx_attr_actor ON attributions(actor);
 CREATE INDEX IF NOT EXISTS idx_reviews_commit ON reviews(commit_sha);
 CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions(finished_at, last_heartbeat);
+CREATE INDEX IF NOT EXISTS idx_assignees_task ON task_assignees(task_key);
+CREATE INDEX IF NOT EXISTS idx_risks_task ON risks(task_key);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_number ON tasks(number);
 `;

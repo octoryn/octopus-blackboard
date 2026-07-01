@@ -146,6 +146,157 @@ program
     console.log(task ? `Completed "${key}".` : `No task "${key}".`);
   });
 
+// --- tasks (kanban) ----------------------------------------------------------
+
+const task = program.command("task").description("define & inspect tasks");
+
+task
+  .command("add")
+  .argument("<key>", "task key, e.g. trust-layer-policy-schema")
+  .option("--title <title>", "short title")
+  .option("--desc <text>", "what the task is")
+  .option("--project <name>", "project/repo it belongs to")
+  .option("--impact <text>", "change surface / blast radius")
+  .option("--risk <level>", "low | medium | high")
+  .description("create or update a task's kanban fields")
+  .action((key, opts) => {
+    const b = board();
+    const t = b.defineTask(actor(), key, {
+      title: opts.title ?? null,
+      description: opts.desc ?? null,
+      project: opts.project ?? null,
+      impact: opts.impact ?? null,
+      riskLevel: opts.risk ?? null,
+    });
+    b.close();
+    console.log(`Task #${t.number} "${t.key}" saved.`);
+  });
+
+task
+  .command("show")
+  .argument("<ref>", "task key or number (#145)")
+  .option("--json", "output raw JSON")
+  .description("show a task's full kanban card")
+  .action((ref, opts) => {
+    const b = board();
+    const t = b.resolveTask(ref);
+    const card = t ? b.taskCard(t.key) : undefined;
+    b.close();
+    if (!card) {
+      console.log(`No task '${ref}'.`);
+      return;
+    }
+    if (opts.json) return printJson(card);
+    const k = card.task;
+    console.log(
+      `#${k.number} ${k.title ?? k.key}   [${k.status}] ${k.progress}%`,
+    );
+    console.log(
+      `  key: ${k.key}${k.project ? `   project: ${k.project}` : ""}`,
+    );
+    if (k.description) console.log(`  what: ${k.description}`);
+    if (k.impact) console.log(`  impact: ${k.impact}`);
+    if (k.riskLevel) console.log(`  risk: ${k.riskLevel}`);
+    console.log(
+      `  assignees: ${card.assignees.join(", ") || "(none)"}   active agents: ${card.activeAgents}`,
+    );
+    if (card.impactFiles.length)
+      console.log(`  files touched: ${card.impactFiles.join(", ")}`);
+    for (const r of card.risks) console.log(`  ⚠ [${r.severity}] ${r.title}`);
+  });
+
+task
+  .command("status")
+  .argument("<ref>", "task key or number")
+  .argument("<status>", "open | claimed | in-progress | blocked | done")
+  .description("set a task's status")
+  .action((ref, status) => {
+    const b = board();
+    const t = b.resolveTask(ref);
+    const updated = t ? b.setTaskStatus(actor(), t.key, status) : undefined;
+    b.close();
+    console.log(
+      updated ? `#${updated.number} → ${status}.` : `No task '${ref}'.`,
+    );
+  });
+
+program
+  .command("tasks")
+  .option("--json", "output raw JSON")
+  .description("list all tasks as kanban cards, grouped by status")
+  .action((opts) => {
+    const b = board();
+    const cards = b.listTaskCards();
+    b.close();
+    if (opts.json) return printJson(cards);
+    if (cards.length === 0) {
+      console.log("No tasks yet.");
+      return;
+    }
+    const columns = ["open", "claimed", "in-progress", "blocked", "done"];
+    for (const col of columns) {
+      const inCol = cards.filter((c) => c.task.status === col);
+      if (inCol.length === 0) continue;
+      console.log(`\n── ${col.toUpperCase()} (${inCol.length}) ──`);
+      for (const c of inCol) {
+        const t = c.task;
+        const who = c.assignees.length
+          ? ` ←${c.assignees.join(",")}`
+          : t.claimedBy
+            ? ` ←${t.claimedBy}`
+            : "";
+        const agents = c.activeAgents > 0 ? ` ⚡${c.activeAgents}` : "";
+        const risk = t.riskLevel ? ` !${t.riskLevel}` : "";
+        console.log(
+          `  #${t.number} ${t.title ?? t.key}  ${t.progress}%${who}${agents}${risk}`,
+        );
+      }
+    }
+  });
+
+program
+  .command("assign")
+  .argument("<ref>", "task key or number (#145)")
+  .argument("<agent>", "agent to notify (e.g. claude, codex)")
+  .description(
+    "assign a task to an agent and drop a 'please look at #N' in their inbox",
+  )
+  .action((ref, agent) => {
+    const b = board();
+    const t = b.resolveTask(ref);
+    const updated = t ? b.assign(actor(), t.key, agent) : undefined;
+    b.close();
+    console.log(
+      updated
+        ? `Assigned #${updated.number} to ${agent} — notification left in their inbox.`
+        : `No task '${ref}'.`,
+    );
+  });
+
+program
+  .command("progress")
+  .argument("<ref>", "task key or number")
+  .argument("<percent>", "0–100")
+  .description("report task progress (moves it to in-progress, or done at 100)")
+  .action((ref, percentArg) => {
+    const percent = parseInt(percentArg, 10);
+    const b = board();
+    if (!Number.isInteger(percent)) {
+      b.close();
+      console.error("percent must be an integer 0–100.");
+      process.exitCode = 1;
+      return;
+    }
+    const t = b.resolveTask(ref);
+    const updated = t ? b.setProgress(actor(), t.key, percent) : undefined;
+    b.close();
+    console.log(
+      updated
+        ? `#${updated.number} → ${updated.progress}% [${updated.status}].`
+        : `No task '${ref}'.`,
+    );
+  });
+
 program
   .command("message")
   .argument("<agent>", "recipient agent, or 'all' to broadcast")
@@ -283,12 +434,14 @@ program
   .command("risk")
   .argument("<title>", "the risk")
   .option("--severity <level>", "low | medium | high", "medium")
-  .description("flag an open risk")
+  .option("--task <ref>", "attach the risk to a task (key or #number)")
+  .description("flag an open risk (optionally on a task)")
   .action((title, opts) => {
     const b = board();
-    b.risk(actor(), title, opts.severity as RiskSeverity);
+    const taskKey = opts.task ? (b.resolveTask(opts.task)?.key ?? null) : null;
+    b.risk(actor(), title, opts.severity as RiskSeverity, taskKey);
     b.close();
-    console.log("Risk flagged.");
+    console.log(taskKey ? `Risk flagged on task ${taskKey}.` : "Risk flagged.");
   });
 
 program

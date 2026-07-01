@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
+## [Unreleased]
+
+### Added
+
+- **Tasks & kanban.** Tasks now carry a stable number (`#145`), description,
+  project, impact (blast radius), risk level, and 0–100 progress. New commands
+  `task add` / `task show` / `task status` / `tasks`, plus `assign` and
+  `progress`. **Assigning is passive notification** — it records the assignee
+  and drops a "please look at task #N" message in that agent's inbox; the agent
+  reads it and decides to act, the board never launches anyone. The read-only
+  `serve` dashboard gains a live kanban (columns by status; cards show number,
+  progress bar, assignees, active-agent count, project, risk). MCP tools:
+  `board_task_define`, `board_task`, `board_tasks`, `board_assign`,
+  `board_progress`. Risks can be attached to a task (`risk --task`).
+
 ## [0.1.1] - 2026-07-01
 
 ### Documentation

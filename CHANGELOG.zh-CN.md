@@ -5,6 +5,19 @@
 本项目所有重要变更记录于此。格式基于
 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，达到 1.0 后遵循语义化版本。
 
+## [Unreleased]
+
+### 新增
+
+- **任务与看板（Kanban）。** 任务现在带稳定编号（`#145`）、描述、project、影响面
+  （blast radius）、风险等级、0–100 进度。新命令 `task add` / `task show` /
+  `task status` / `tasks`,以及 `assign` 和 `progress`。**派发即被动通知**——它记录
+  被指派人,并在该 agent 收件箱放一条"请查看任务 #N";agent 读到后自己决定是否开工,
+  板子从不启动任何人。只读 `serve` 看板新增实时 Kanban（按状态分列;卡片显示编号、
+  进度条、负责人、活跃 agent 数、project、风险）。MCP 工具:`board_task_define`、
+  `board_task`、`board_tasks`、`board_assign`、`board_progress`。风险可挂到任务上
+  （`risk --task`）。
+
 ## [0.1.1] - 2026-07-01
 
 ### 文档
