@@ -53,6 +53,8 @@ export interface Session {
   workingDirectory: string | null;
   gitBranch: string | null;
   repository: string | null;
+  /** Ed25519 public key (PEM) for this session's signatures, if signing is on. */
+  publicKey: string | null;
   startedAt: string;
   finishedAt: string | null;
 }

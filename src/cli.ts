@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { Command } from "commander";
 import { Board } from "./board.js";
 import { loadConfig } from "./config.js";
+import * as git from "./git.js";
 import type { RiskSeverity } from "./types.js";
 
 const program = new Command();
@@ -529,17 +530,181 @@ program
   });
 
 program
+  .command("export")
+  .option("--range <range>", "commit range to export, e.g. main..HEAD (default: all attributed)")
+  .option("--out <file>", "write the bundle to a file (default: stdout)")
+  .description("export a portable attribution bundle (survives push/PR)")
+  .action((opts) => {
+    const b = board();
+    const commits = opts.range ? git.revList(opts.range) : undefined;
+    const bundle = b.exportBundle(commits);
+    b.close();
+    const json = JSON.stringify(bundle, null, 2);
+    if (opts.out) {
+      writeFileSync(opts.out, json, "utf8");
+      console.log(`Wrote ${bundle.attributions.length} attribution(s), ${bundle.reviews.length} review(s) to ${opts.out}.`);
+    } else {
+      console.log(json);
+    }
+  });
+
+program
+  .command("import")
+  .argument("<file>", "bundle file to import")
+  .description("import an attribution bundle into this board (idempotent)")
+  .action((file) => {
+    const b = board();
+    try {
+      const bundle = JSON.parse(readFileSync(file, "utf8"));
+      const counts = b.importBundle(bundle);
+      console.log(
+        `Imported ${counts.attributions} attribution(s), ${counts.reviews} review(s), ${counts.sessions} session(s), ${counts.decisions} decision(s).`
+      );
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exitCode = 1;
+    } finally {
+      b.close();
+    }
+  });
+
+program
+  .command("trailers")
+  .argument("[rev]", "commit to describe", "HEAD")
+  .description("print git trailer lines encoding a commit's attribution")
+  .action((rev) => {
+    const b = board();
+    const lines = b.trailersFor(rev);
+    b.close();
+    if (lines.length === 0) {
+      console.error("No attribution recorded for this commit.");
+      process.exitCode = 1;
+      return;
+    }
+    for (const l of lines) {
+      console.log(l);
+    }
+  });
+
+program
+  .command("check")
+  .option("--range <range>", "commit range to check, e.g. main..HEAD (default: all attributed commits)")
+  .option("--require-human-review", "fail if any AI-produced commit lacks a human review")
+  .option("--require-attribution", "fail if a scoped commit has no attribution at all")
+  .option("--verify-chain", "fail if the timeline hash chain is broken")
+  .option("--json", "output raw JSON")
+  .description("governance gate: assert policy over commits, exit 1 on violation")
+  .action((opts) => {
+    const b = board();
+    let commits: string[] | undefined;
+    if (opts.range) {
+      commits = git.revList(opts.range);
+    }
+    // With no explicit policy flags, apply a sensible default gate.
+    const anyPolicy = opts.requireHumanReview || opts.requireAttribution || opts.verifyChain;
+    const result = b.check({
+      commits,
+      requireHumanReview: anyPolicy ? Boolean(opts.requireHumanReview) : true,
+      requireAttribution: Boolean(opts.requireAttribution),
+      verifyChain: anyPolicy ? Boolean(opts.verifyChain) : true
+    });
+    b.close();
+
+    if (opts.json) {
+      printJson(result);
+    } else if (result.ok) {
+      console.log(`✓ policy passed (${result.checked} commit(s) checked).`);
+    } else {
+      console.error(`✗ policy FAILED — ${result.violations.length} violation(s):`);
+      for (const v of result.violations) {
+        const where = v.commit ? `${v.commit.slice(0, 12)} ` : "";
+        console.error(`  [${v.kind}] ${where}${v.detail}`);
+      }
+    }
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("watch")
+  .option("--for <agent>", "only notify about events relevant to this agent")
+  .option("--interval <ms>", "poll interval in milliseconds", (v) => parseInt(v, 10), 1000)
+  .option("--once", "print events since the current head and exit (no loop)")
+  .description("subscribe to board changes (poll the timeline for new events)")
+  .action((opts) => {
+    const b = board();
+    const forAgent: string | undefined = opts.for;
+    let last = b.headSeq();
+
+    const drain = (): void => {
+      const fresh = b.since(last);
+      if (fresh.length > 0) {
+        last = fresh[fresh.length - 1].seq;
+      }
+      const show = forAgent ? b.notable(fresh, forAgent) : fresh;
+      for (const e of show) {
+        const t = new Date(e.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        console.log(`${t}  #${e.seq} ${e.actor.padEnd(10)} ${e.summary}`);
+      }
+    };
+
+    if (opts.once) {
+      // `--once` reports from 0 so a one-shot poll is useful in scripts.
+      last = 0;
+      drain();
+      b.close();
+      return;
+    }
+
+    const interval = Number.isInteger(opts.interval) && opts.interval > 0 ? opts.interval : 1000;
+    console.error(`watching board from seq ${last}${forAgent ? ` for ${forAgent}` : ""} — Ctrl-C to stop`);
+    const timer = setInterval(drain, interval);
+    process.on("SIGINT", () => {
+      clearInterval(timer);
+      b.close();
+      process.exit(0);
+    });
+  });
+
+program
+  .command("sign")
+  .description("sign the current timeline head with your active session key")
+  .action(() => {
+    const b = board();
+    const signed = b.signHead();
+    b.close();
+    if (!signed) {
+      console.error("Nothing to sign (no active session, missing key, or empty board).");
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`Signed head at seq ${signed.headSeq}.`);
+  });
+
+program
   .command("verify")
-  .description("verify the timeline hash chain has not been tampered with")
+  .description("verify the timeline hash chain and show signature trust")
   .action(() => {
     const b = board();
     const result = b.verifyChain();
+    const sigs = b.verifySignatures();
+    const signedThrough = b.signedThrough();
     b.close();
     if (result.ok) {
-      console.log(`✓ chain intact — ${result.length} ent[ries] verified`);
+      console.log(`✓ chain intact — ${result.length} entr(ies) verified`);
     } else {
       console.error(`✗ chain BROKEN at seq ${result.brokenAtSeq} (of ${result.length})`);
       process.exitCode = 1;
+    }
+    if (sigs.length === 0) {
+      console.log("trust: (no signatures yet — run 'octoboard sign' or stop a session)");
+    } else {
+      console.log(`trust: signed through seq ${signedThrough}`);
+      for (const s of sigs) {
+        const mark = s.valid && s.current ? "✓ trusted" : s.valid ? "⚠ stale (history changed)" : "✗ invalid";
+        console.log(`  seq ${String(s.headSeq).padStart(3)}  ${s.agent ?? "?"} (${s.sessionId.slice(0, 8)})  ${mark}`);
+      }
     }
   });
 

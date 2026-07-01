@@ -1,10 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
+import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { openDb } from "./db.js";
 import { loadConfig, type AgentIdentity, type BoardConfig, type ConfigOverrides } from "./config.js";
 import { clearCurrentSession, setCurrentSession } from "./current.js";
 import * as git from "./git.js";
+import { generateSessionKeypair, signHash, verifyHash } from "./signing.js";
 import type {
   Agent,
   ActorType,
@@ -49,6 +52,47 @@ export interface ChainVerification {
   length: number;
   /** Seq of the first entry whose hash does not validate, if any. */
   brokenAtSeq: number | null;
+}
+
+export type PolicyViolationKind = "unreviewed" | "unattributed" | "chain-broken";
+
+export interface PolicyViolation {
+  kind: PolicyViolationKind;
+  commit: string | null;
+  detail: string;
+}
+
+/** Outcome of a governance check — the basis for a CI gate. */
+export interface PolicyResult {
+  ok: boolean;
+  violations: PolicyViolation[];
+  chain: ChainVerification | null;
+  /** How many commits were in scope for review checks. */
+  checked: number;
+}
+
+export interface PolicyOptions {
+  /** Explicit commit scope (e.g. a PR's `main..HEAD` shas). */
+  commits?: string[];
+  /** Fail if any AI-produced commit in scope lacks a human review. */
+  requireHumanReview?: boolean;
+  /** Fail if any explicitly-scoped commit has no attribution at all. */
+  requireAttribution?: boolean;
+  /** Fail if the timeline hash chain does not verify. */
+  verifyChain?: boolean;
+}
+
+/** Schema tag for the portable attribution bundle. Bump on breaking changes. */
+export const BUNDLE_VERSION = "octopus-blackboard/attribution-bundle@1";
+
+/** A portable bundle of attribution that travels with (but outside) Git. */
+export interface AttributionBundle {
+  version: string;
+  exportedAt: string;
+  attributions: Attribution[];
+  reviews: Review[];
+  sessions: Session[];
+  decisions: Decision[];
 }
 
 /**
@@ -220,6 +264,51 @@ export class Board {
     return rows.map(rowToTimeline).reverse();
   }
 
+  /** The current head sequence number (0 if the board is empty). */
+  headSeq(): number {
+    return this.headHash().seq;
+  }
+
+  /** Timeline events after `afterSeq`, oldest first — the polling primitive
+   *  behind `watch`/`subscribe`. Passive: callers poll; the board never pushes. */
+  since(afterSeq: number): TimelineEvent[] {
+    return (
+      this.db.prepare("SELECT * FROM timeline WHERE seq > ? ORDER BY seq ASC").all(afterSeq) as any[]
+    ).map(rowToTimeline);
+  }
+
+  /**
+   * Filter events down to those an agent should be notified about: messages to
+   * it (or broadcast), handoffs to it, and claim conflicts on keys it holds. An
+   * agent's own actions are excluded. This is what makes `watch --for <agent>`
+   * a useful inbox rather than a firehose.
+   */
+  notable(events: TimelineEvent[], agent: string): TimelineEvent[] {
+    return events.filter((e) => {
+      if (e.actor === agent) {
+        return false;
+      }
+      const payload = (e.payload ?? {}) as Record<string, unknown>;
+      switch (e.kind) {
+        case "message":
+          return payload.to === agent || payload.to === null;
+        case "claim":
+          return payload.conflict === agent;
+        case "handoff": {
+          if (!e.refId) {
+            return false;
+          }
+          const row = this.db.prepare("SELECT to_agent FROM handoffs WHERE id = ?").get(e.refId) as
+            | { to_agent: string }
+            | undefined;
+          return row?.to_agent === agent;
+        }
+        default:
+          return false;
+      }
+    });
+  }
+
   // --- agents ----------------------------------------------------------------
 
   /**
@@ -285,24 +374,30 @@ export class Board {
    * machine and repository context the session runs in.
    */
   startSession(label: string | null = null): Session {
+    const sessionId = id();
+    // Generate the session keypair up front; the private key stays local (in
+    // the board's keys/ dir), only the public key is recorded on the session.
+    const keypair = generateSessionKeypair();
+    this.saveSessionKey(sessionId, keypair.privateKeyPem);
     const tx = this.db.transaction((): Session => {
       this.ensureAgent(this.config.agent);
       const at = now();
       const session: Session = {
-        id: id(),
+        id: sessionId,
         agentName: this.config.agent,
         label,
         machine: hostname(),
         workingDirectory: process.cwd(),
         gitBranch: git.currentBranch() ?? null,
         repository: git.remoteUrl() ?? git.repoRoot() ?? null,
+        publicKey: keypair.publicKeyPem,
         startedAt: at,
         finishedAt: null
       };
       this.db
         .prepare(
-          `INSERT INTO sessions (id, agent_name, label, machine, working_directory, git_branch, repository, started_at, finished_at)
-           VALUES (@id, @agentName, @label, @machine, @workingDirectory, @gitBranch, @repository, @startedAt, @finishedAt)`
+          `INSERT INTO sessions (id, agent_name, label, machine, working_directory, git_branch, repository, public_key, started_at, finished_at)
+           VALUES (@id, @agentName, @label, @machine, @workingDirectory, @gitBranch, @repository, @publicKey, @startedAt, @finishedAt)`
         )
         .run(session);
       // Stamp subsequent events (including this one) with the new session.
@@ -320,6 +415,103 @@ export class Board {
     const session = tx.immediate();
     setCurrentSession(this.config.boardDir, this.config.agent, session.id);
     return session;
+  }
+
+  // --- session signing (v0) --------------------------------------------------
+
+  private keyPath(sessionId: string): string {
+    return join(this.config.boardDir, "keys", `${sessionId}.key`);
+  }
+
+  private saveSessionKey(sessionId: string, privateKeyPem: string): void {
+    const path = this.keyPath(sessionId);
+    mkdirSync(join(this.config.boardDir, "keys"), { recursive: true });
+    writeFileSync(path, privateKeyPem, { mode: 0o600 });
+  }
+
+  private loadSessionKey(sessionId: string): string | undefined {
+    const path = this.keyPath(sessionId);
+    return existsSync(path) ? readFileSync(path, "utf8") : undefined;
+  }
+
+  /**
+   * Sign the current timeline head hash with a session's private key. The
+   * signature attests "this session vouches for board state through seq N".
+   * Recorded in the `signatures` table (not the chain, so the head stays put).
+   */
+  signHead(sessionId?: string): { headSeq: number; headHash: string } | undefined {
+    const sid = sessionId ?? this.activeSession;
+    if (!sid) {
+      return undefined;
+    }
+    const priv = this.loadSessionKey(sid);
+    const session = this.getSession(sid);
+    if (!priv || !session?.publicKey) {
+      return undefined;
+    }
+    const head = this.headHash();
+    if (head.seq === 0) {
+      return undefined;
+    }
+    const signature = signHash(priv, head.hash);
+    this.db
+      .prepare(
+        `INSERT INTO signatures (id, session_id, head_seq, head_hash, signature, public_key, created_at)
+         VALUES (@id, @sessionId, @headSeq, @headHash, @signature, @publicKey, @createdAt)`
+      )
+      .run({
+        id: id(),
+        sessionId: sid,
+        headSeq: head.seq,
+        headHash: head.hash,
+        signature,
+        publicKey: session.publicKey,
+        createdAt: now()
+      });
+    return { headSeq: head.seq, headHash: head.hash };
+  }
+
+  /**
+   * Verify every recorded signature. `valid` = the signature checks out against
+   * its public key. `current` = the signed head hash still matches the timeline
+   * row at that seq (i.e. history below it was not altered/truncated since).
+   */
+  verifySignatures(): {
+    sessionId: string;
+    agent: string | null;
+    headSeq: number;
+    valid: boolean;
+    current: boolean;
+    at: string;
+  }[] {
+    const rows = this.db.prepare("SELECT * FROM signatures ORDER BY head_seq ASC").all() as any[];
+    // A signature only "covers" its head if the chain is actually intact up to
+    // that seq — otherwise a tamper below the signed head (that leaves the head
+    // row's stored hash untouched) would still read as trusted.
+    const chain = this.verifyChain();
+    return rows.map((r) => {
+      const valid = verifyHash(r.public_key, r.head_hash, r.signature);
+      const row = this.db.prepare("SELECT hash FROM timeline WHERE seq = ?").get(r.head_seq) as
+        | { hash: string }
+        | undefined;
+      const chainOkThroughHead = chain.ok || (chain.brokenAtSeq !== null && r.head_seq < chain.brokenAtSeq);
+      const session = this.getSession(r.session_id);
+      return {
+        sessionId: r.session_id,
+        agent: session?.agentName ?? null,
+        headSeq: r.head_seq,
+        valid,
+        current: row?.hash === r.head_hash && chainOkThroughHead,
+        at: r.created_at
+      };
+    });
+  }
+
+  /** Highest seq that a valid, still-current signature vouches for (0 = none). */
+  signedThrough(): number {
+    return this.verifySignatures()
+      .filter((s) => s.valid && s.current)
+      .reduce((max, s) => Math.max(max, s.headSeq), 0);
   }
 
   /** Close a session (the active one by default) and clear the pointer. */
@@ -343,6 +535,13 @@ export class Board {
     });
     const session = tx.immediate();
     if (session) {
+      // Sign the head (now including the session-stop event) so the session's
+      // final state is vouched for. Best-effort: never fails a stop.
+      try {
+        this.signHead(target);
+      } catch {
+        /* signing is advisory in v0 */
+      }
       clearCurrentSession(this.config.boardDir, session.agentName ?? this.config.agent);
     }
     return session;
@@ -1012,6 +1211,197 @@ export class Board {
     return [...a].filter((f) => b.has(f)).sort();
   }
 
+  // --- governance (CI gate) --------------------------------------------------
+
+  private distinctAttributedCommits(): string[] {
+    return (this.db.prepare("SELECT DISTINCT commit_sha FROM attributions").all() as any[]).map(
+      (r) => r.commit_sha
+    );
+  }
+
+  private hasAttribution(sha: string): boolean {
+    return this.db.prepare("SELECT 1 FROM attributions WHERE commit_sha = ? LIMIT 1").get(sha) !== undefined;
+  }
+
+  private hasAiAttribution(sha: string): boolean {
+    return (
+      this.db
+        .prepare("SELECT 1 FROM attributions WHERE commit_sha = ? AND actor_type = 'ai' LIMIT 1")
+        .get(sha) !== undefined
+    );
+  }
+
+  private hasHumanReview(sha: string): boolean {
+    return (
+      this.db
+        .prepare("SELECT 1 FROM reviews WHERE commit_sha = ? AND reviewer_type = 'human' LIMIT 1")
+        .get(sha) !== undefined
+    );
+  }
+
+  /**
+   * Evaluate governance policy over a set of commits — the read-only basis for
+   * a CI gate. The board only reports pass/fail and the specific violations; it
+   * never blocks anything itself (the CI system decides what to do with a
+   * non-zero result). This keeps the blackboard passive while still enabling
+   * "no unreviewed AI work reaches main".
+   */
+  check(opts: PolicyOptions): PolicyResult {
+    const violations: PolicyViolation[] = [];
+    let chain: ChainVerification | null = null;
+
+    if (opts.verifyChain) {
+      chain = this.verifyChain();
+      if (!chain.ok) {
+        violations.push({
+          kind: "chain-broken",
+          commit: null,
+          detail: `timeline hash chain broken at seq ${chain.brokenAtSeq}`
+        });
+      }
+    }
+
+    // Attribution is required only for an explicit commit scope (otherwise the
+    // "all attributed commits" scope trivially satisfies it).
+    if (opts.requireAttribution && opts.commits) {
+      for (const c of opts.commits) {
+        if (!this.hasAttribution(c)) {
+          violations.push({ kind: "unattributed", commit: c, detail: "no attribution recorded for this commit" });
+        }
+      }
+    }
+
+    const scope = opts.commits ?? this.distinctAttributedCommits();
+    if (opts.requireHumanReview) {
+      for (const c of scope) {
+        if (this.hasAiAttribution(c) && !this.hasHumanReview(c)) {
+          violations.push({ kind: "unreviewed", commit: c, detail: "AI-produced commit has no human review" });
+        }
+      }
+    }
+
+    return { ok: violations.length === 0, violations, chain, checked: scope.length };
+  }
+
+  // --- portability (export / import / trailers) ------------------------------
+
+  private allAttributions(): Attribution[] {
+    return (this.db.prepare("SELECT * FROM attributions").all() as any[]).map(rowToAttribution);
+  }
+
+  private allReviews(): Review[] {
+    return (this.db.prepare("SELECT * FROM reviews").all() as any[]).map(rowToReview);
+  }
+
+  /**
+   * Bundle attribution for a set of commits into a portable, version-stamped
+   * object. This is how local-first attribution survives `git push`: export on
+   * the machine that did the work, import into a team board (or CI) on the
+   * other side. Git carries the code; the bundle carries the accountability.
+   */
+  exportBundle(commits?: string[]): AttributionBundle {
+    const scope = new Set(commits ?? this.distinctAttributedCommits());
+    const attributions = this.allAttributions().filter((a) => scope.has(a.commit));
+    const reviews = this.allReviews().filter((r) => scope.has(r.commit));
+    const sessionIds = new Set(
+      [...attributions, ...reviews].map((x) => x.sessionId).filter((s): s is string => s !== null)
+    );
+    const sessions = [...sessionIds].map((sid) => this.getSession(sid)).filter((s): s is Session => s !== undefined);
+    const decisions = (this.db.prepare("SELECT * FROM decisions").all() as any[])
+      .map(rowToDecision)
+      .filter((d) => d.relatedCommits.some((c) => scope.has(c)));
+    return {
+      version: BUNDLE_VERSION,
+      exportedAt: now(),
+      attributions,
+      reviews,
+      sessions,
+      decisions
+    };
+  }
+
+  /**
+   * Merge a bundle into this board. Idempotent: rows already present (by id)
+   * are left untouched, so re-importing is safe. One `import` event is appended
+   * to the local timeline; the imported rows keep their original ids/times.
+   */
+  importBundle(bundle: AttributionBundle): { attributions: number; reviews: number; sessions: number; decisions: number } {
+    if (!bundle || bundle.version !== BUNDLE_VERSION) {
+      throw new Error(`unsupported bundle version: ${bundle?.version ?? "(none)"}`);
+    }
+    const counts = { attributions: 0, reviews: 0, sessions: 0, decisions: 0 };
+    const tx = this.db.transaction(() => {
+      const insSession = this.db.prepare(
+        `INSERT OR IGNORE INTO sessions (id, agent_name, label, machine, working_directory, git_branch, repository, public_key, started_at, finished_at)
+         VALUES (@id, @agentName, @label, @machine, @workingDirectory, @gitBranch, @repository, @publicKey, @startedAt, @finishedAt)`
+      );
+      for (const s of bundle.sessions ?? []) {
+        counts.sessions += insSession.run(s).changes;
+      }
+      const insAttr = this.db.prepare(
+        `INSERT OR IGNORE INTO attributions (id, commit_sha, file, hunk, actor_type, actor, provider, model, cli, session_id, created_at)
+         VALUES (@id, @commit, @file, @hunk, @actorType, @actor, @provider, @model, @cli, @sessionId, @createdAt)`
+      );
+      for (const a of bundle.attributions ?? []) {
+        counts.attributions += insAttr.run(a).changes;
+      }
+      const insReview = this.db.prepare(
+        `INSERT OR IGNORE INTO reviews (id, commit_sha, reviewer_type, reviewer, session_id, outcome, note, created_at)
+         VALUES (@id, @commit, @reviewerType, @reviewer, @sessionId, @outcome, @note, @createdAt)`
+      );
+      for (const r of bundle.reviews ?? []) {
+        counts.reviews += insReview.run(r).changes;
+      }
+      const insDecision = this.db.prepare(
+        `INSERT OR IGNORE INTO decisions (id, agent_id, session_id, title, rationale, evidence, related_commits, related_tasks, created_at)
+         VALUES (@id, @agentId, @sessionId, @title, @rationale, @evidence, @relatedCommits, @relatedTasks, @createdAt)`
+      );
+      for (const d of bundle.decisions ?? []) {
+        counts.decisions += insDecision.run({
+          ...d,
+          relatedCommits: JSON.stringify(d.relatedCommits ?? []),
+          relatedTasks: JSON.stringify(d.relatedTasks ?? [])
+        }).changes;
+      }
+      this.append(
+        this.config.agent,
+        "import",
+        `imported bundle: ${counts.attributions} attribution(s), ${counts.reviews} review(s)`,
+        null,
+        null,
+        counts
+      );
+    });
+    tx.immediate();
+    return counts;
+  }
+
+  /**
+   * Git trailer lines encoding a commit's attribution, for embedding in a
+   * commit message so it travels with the commit itself (a lightweight
+   * alternative to a bundle). Blackboard-namespaced — it does not hijack
+   * `Co-Authored-By`.
+   */
+  trailersFor(rev: string): string[] {
+    const sha = git.resolveRev(rev) ?? rev;
+    const attrs = this.attributionsForCommit(sha);
+    const lines: string[] = [];
+    const seen = new Set<string>();
+    for (const a of attrs) {
+      const model = a.model ? ` ${a.model}` : "";
+      const line = `Blackboard-Attribution: ${a.actorType} ${a.actor}${model}${a.cli ? ` via ${a.cli}` : ""}`;
+      if (!seen.has(line)) {
+        seen.add(line);
+        lines.push(line);
+      }
+    }
+    const sessionIds = [...new Set(attrs.map((a) => a.sessionId).filter((s): s is string => s !== null))];
+    for (const sid of sessionIds) {
+      lines.push(`Blackboard-Session: ${sid}`);
+    }
+    return lines;
+  }
+
   /** Everything the board knows about a commit — the `explain` view. */
   explain(rev: string): {
     commit: git.CommitInfo | { sha: string };
@@ -1088,6 +1478,7 @@ function rowToSession(r: any): Session {
     workingDirectory: r.working_directory ?? null,
     gitBranch: r.git_branch ?? null,
     repository: r.repository ?? null,
+    publicKey: r.public_key ?? null,
     startedAt: r.started_at,
     finishedAt: r.finished_at ?? null
   };

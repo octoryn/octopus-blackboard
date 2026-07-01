@@ -99,6 +99,19 @@ Writes serialize safely when several CLIs share one board: each mutation runs in
 an *immediate* SQLite transaction, so concurrent writers take turns (bounded by
 `busy_timeout`) rather than one silently failing.
 
+## Known limitations (deferred)
+
+- **Merge commits** attribute zero files: `git show --name-only` prints nothing
+  for a merge by default, so `link` records a single whole-commit attribution
+  with no per-file rows. Attributing a merge's brought-in files needs a
+  first-parent/diff-tree decision that is intentionally deferred.
+- **Deleted files** in a linked commit are still attributed as "produced,"
+  which may be semantically wrong. Deferred pending a clearer model of what
+  attribution means for a deletion.
+
+Both are recorded here rather than silently handled, so a consumer of the data
+knows the edges.
+
 ## Boundaries (by design)
 
 The attribution layer only records, shares, and exposes. It does **not**

@@ -140,6 +140,63 @@ blackboard timeline --session <id>     # 单个 session 的 HH:MM 时间线
 每一条归属、review、session、决策都会同时记入哈希链 `timeline`,因此完整的问责历
 史防篡改、可复盘。`blackboard` 与 `octoboard` 是同一个命令。
 
+## 治理与问责链
+
+归属的意义在于**能落地约束**。从"干活"到"合并门禁"的完整链路:
+
+```text
+agent work → commit attribution → export/import → CI check → human-review gate
+```
+
+### CI 门禁(`check`)
+
+把查询变成可执行门禁。只读——报告 pass/fail 并以非零退出;真正 block 的是 CI 系统,
+黑板从不阻塞。
+
+```bash
+# CI 里,在 PR 分支上——存在未经人类 review 的 AI commit 就让构建失败:
+blackboard check --range origin/main..HEAD --require-human-review
+echo $?   # 0=通过, 1=有违规
+
+blackboard check            # 默认门禁:校验链 + 要求人类 review
+```
+
+### 可携带性(`export` / `import` / `trailers`)
+
+归属是本地优先的;这几条让它活过 `git push`,进入团队板子或 CI:
+
+```bash
+blackboard export --range origin/main..HEAD --out attribution.json  # 开发机上
+blackboard import attribution.json                                   # 团队板 / CI 上
+blackboard trailers HEAD                                             # commit message 用的 trailer 行
+```
+
+`import` 幂等(按行 id 去重)。bundle 携带 attributions、reviews、sessions、相关 decisions。
+
+### 订阅(`watch`)
+
+补齐 read/write/**subscribe**/message 契约。被动:轮询并报告,绝不推工作。
+
+```bash
+blackboard watch --for claude     # 只提示发给我的 message/handoff/冲突
+blackboard watch                  # 全量流
+blackboard watch --once           # 一次性轮询(脚本用)
+```
+
+### 签名 session(`sign` / `verify`)
+
+最小身份(v0):每个 session 一对 Ed25519 密钥(私钥留本地 `.octoboard/keys/`,已
+gitignore)。对 timeline head 签名,让 `verify` 区分**可信**与仅仅"自证":
+
+```bash
+blackboard sign        # 用当前活跃 session key 对 head 签名
+blackboard verify      # 链完整性 + 哪些 session 签过、trusted/stale
+```
+
+`session stop` 时自动对 head 签名。一旦任何更早的历史被改动,覆盖该 head 的签名就变
+**stale**——即使签名本身在密码学上仍有效,篡改也会显形。这还不是完整 PKI(无密钥分
+发/吊销)。
+
 ## MCP 服务器
 
 任何支持 MCP 的 agent 都能直接读写黑板。注册服务器（stdio transport）：
@@ -158,10 +215,11 @@ blackboard timeline --session <id>     # 单个 session 的 HH:MM 时间线
 
 提供的工具：`board_status`、`board_timeline`、`board_note`、`board_claim`、
 `board_message`、`board_inbox`、`board_decision`、`board_evidence`、
-`board_file_changed`、`board_risk`、`board_handoff`,以及归属层:`session_start`、
+`board_file_changed`、`board_risk`、`board_handoff`;归属层:`session_start`、
 `session_stop`、`board_link`、`board_attribute`、`board_review`、`board_who`、
-`board_explain`、`board_unreviewed`。每个工具都接受可选的 `agent` 参数,用于按调用
-覆盖身份。
+`board_explain`、`board_unreviewed`;以及治理链:`board_check`、`board_export`、
+`board_import`、`board_trailers`、`board_since`、`board_sign`、`board_trust`。每个
+工具都接受可选的 `agent` 参数,用于按调用覆盖身份。
 
 推荐模式：agent 在**开始工作前**调用 `board_status` 看看其他人在干什么，然后边做
 边写。

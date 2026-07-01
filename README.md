@@ -163,6 +163,70 @@ Every attribution, review, session, and decision is also recorded in the
 hash-chained `timeline`, so the full accountability history is tamper-evident
 and replayable. `blackboard` and `octoboard` are the same command.
 
+## Governance & accountability chain
+
+The point of attribution is to *enforce* something. The chain from work to a
+merge gate:
+
+```text
+agent work → commit attribution → export/import → CI check → human-review gate
+```
+
+### CI gate (`check`)
+
+Turn queries into an enforceable gate. Read-only — it reports pass/fail and
+exits non-zero; the CI system decides what to do. The blackboard never blocks.
+
+```bash
+# In CI, on a PR branch — fail the build if any AI commit isn't human-reviewed:
+blackboard check --range origin/main..HEAD --require-human-review
+echo $?   # 0 = pass, 1 = violations
+
+blackboard check --verify-chain --require-attribution --range origin/main..HEAD
+blackboard check            # default gate: verify chain + require human review
+```
+
+### Portability (`export` / `import` / `trailers`)
+
+Attribution is local-first; these make it survive `git push` into a team board
+or CI:
+
+```bash
+blackboard export --range origin/main..HEAD --out attribution.json  # on the dev machine
+blackboard import attribution.json                                   # on the team board / CI
+blackboard trailers HEAD                                             # trailer lines for a commit message
+```
+
+`import` is idempotent (keyed by row id). The bundle carries attributions,
+reviews, sessions, and related decisions.
+
+### Subscribe (`watch`)
+
+Complete the read/write/**subscribe**/message contract. Passive: it polls and
+reports; it never pushes work.
+
+```bash
+blackboard watch --for claude     # only messages/handoffs/conflicts addressed to me
+blackboard watch                  # the full stream
+blackboard watch --once           # one-shot poll (for scripts)
+```
+
+### Signed sessions (`sign` / `verify`)
+
+Minimal identity (v0): each session gets an Ed25519 keypair (private key stays
+local under `.octoboard/keys/`, gitignored). Signing the timeline head lets
+`verify` distinguish **trusted** state from merely asserted:
+
+```bash
+blackboard sign        # sign the current head with the active session key
+blackboard verify      # chain integrity + which sessions have signed, trusted/stale
+```
+
+A session auto-signs its head on `session stop`. A signature over a head becomes
+**stale** the moment any earlier history is altered — so tampering is visible
+even though the signature itself stays cryptographically valid. This is not yet
+a full PKI (no key distribution or revocation).
+
 ## MCP server
 
 Any MCP-capable agent can read and write the board directly. Register the
@@ -182,9 +246,11 @@ server (stdio transport):
 
 Tools exposed: `board_status`, `board_timeline`, `board_note`, `board_claim`,
 `board_message`, `board_inbox`, `board_decision`, `board_evidence`,
-`board_file_changed`, `board_risk`, `board_handoff`, plus the attribution layer:
+`board_file_changed`, `board_risk`, `board_handoff`; the attribution layer:
 `session_start`, `session_stop`, `board_link`, `board_attribute`,
-`board_review`, `board_who`, `board_explain`, `board_unreviewed`. Each accepts an
+`board_review`, `board_who`, `board_explain`, `board_unreviewed`; and the
+governance chain: `board_check`, `board_export`, `board_import`,
+`board_trailers`, `board_since`, `board_sign`, `board_trust`. Each accepts an
 optional `agent` argument to override the acting identity per call.
 
 The recommended pattern: an agent calls `board_status` **before** starting work

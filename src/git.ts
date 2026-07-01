@@ -47,6 +47,18 @@ export function resolveRev(rev: string, cwd: string = process.cwd()): string | u
   return git(["rev-parse", "--verify", "--end-of-options", `${rev}^{commit}`], cwd);
 }
 
+/**
+ * List commit shas in a revision range (e.g. `main..HEAD`), newest first.
+ * `--end-of-options` blocks flag injection via a dashed range.
+ */
+export function revList(range: string, cwd: string = process.cwd()): string[] {
+  const out = git(["rev-list", "--end-of-options", range], cwd);
+  if (!out) {
+    return [];
+  }
+  return out.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+}
+
 export interface CommitInfo {
   sha: string;
   author: string;

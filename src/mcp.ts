@@ -4,6 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { Board } from "./board.js";
 import { loadConfig } from "./config.js";
+import * as git from "./git.js";
 import type { RiskSeverity, FileChangeKind } from "./types.js";
 
 /**
@@ -255,6 +256,66 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       name: "board_unreviewed",
       description: "List AI-produced commits that have never been reviewed by a human.",
       inputSchema: { type: "object", properties: {} }
+    },
+    {
+      name: "board_check",
+      description:
+        "Governance gate: assert policy over commits and report pass/fail plus violations. Read-only — reports, does not block. Use in CI to keep unreviewed AI work off a branch.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          range: { type: "string", description: "commit range, e.g. main..HEAD (default: all attributed commits)" },
+          requireHumanReview: { type: "boolean", description: "fail if an AI commit lacks a human review" },
+          requireAttribution: { type: "boolean", description: "fail if a scoped commit has no attribution" },
+          verifyChain: { type: "boolean", description: "fail if the timeline hash chain is broken" }
+        }
+      }
+    },
+    {
+      name: "board_export",
+      description:
+        "Export a portable attribution bundle (attributions, reviews, sessions, decisions) for a commit range, so attribution survives push/PR into a team board or CI.",
+      inputSchema: {
+        type: "object",
+        properties: { range: { type: "string", description: "commit range (default: all attributed commits)" } }
+      }
+    },
+    {
+      name: "board_import",
+      description: "Import an attribution bundle (as produced by board_export) into this board. Idempotent.",
+      inputSchema: {
+        type: "object",
+        properties: { bundle: { type: "object", description: "the bundle object from board_export" } },
+        required: ["bundle"]
+      }
+    },
+    {
+      name: "board_trailers",
+      description: "Git trailer lines encoding a commit's attribution, for embedding in a commit message.",
+      inputSchema: { type: "object", properties: { rev: { type: "string", description: "defaults to HEAD" } } }
+    },
+    {
+      name: "board_since",
+      description:
+        "Subscribe primitive: poll for timeline events after a given seq. Returns the new head seq and events (optionally filtered to those relevant to an agent). Call board_status first to get a starting seq.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          afterSeq: { type: "number", description: "return events with seq greater than this" },
+          forAgent: { type: "string", description: "filter to messages/handoffs/conflicts for this agent" }
+        },
+        required: ["afterSeq"]
+      }
+    },
+    {
+      name: "board_sign",
+      description: "Sign the current timeline head with the active session's key (attests board state through the head seq).",
+      inputSchema: { type: "object", properties: { ...AGENT_PROP } }
+    },
+    {
+      name: "board_trust",
+      description: "Show signature trust: which sessions have signed the timeline and whether each signature is valid and still current.",
+      inputSchema: { type: "object", properties: {} }
     }
   ]
 }));
@@ -414,6 +475,46 @@ function handleTool(name: string, args: Record<string, any>, actor: string) {
 
     case "board_unreviewed":
       return text(withBoard((b) => b.unreviewedCommits()));
+
+    case "board_check": {
+      const commits = args.range ? git.revList(String(args.range)) : undefined;
+      const anyPolicy = args.requireHumanReview || args.requireAttribution || args.verifyChain;
+      return text(
+        withBoard((b) =>
+          b.check({
+            commits,
+            requireHumanReview: anyPolicy ? Boolean(args.requireHumanReview) : true,
+            requireAttribution: Boolean(args.requireAttribution),
+            verifyChain: anyPolicy ? Boolean(args.verifyChain) : true
+          })
+        )
+      );
+    }
+
+    case "board_export":
+      return text(withBoard((b) => b.exportBundle(args.range ? git.revList(String(args.range)) : undefined)));
+
+    case "board_import":
+      return text(withBoard((b) => b.importBundle(args.bundle)));
+
+    case "board_trailers":
+      return text(withBoard((b) => b.trailersFor(String(args.rev ?? "HEAD")).join("\n")));
+
+    case "board_since":
+      return text(
+        withBoard((b) => {
+          const events = b.since(intArg(args.afterSeq, 0));
+          return { headSeq: b.headSeq(), events: args.forAgent ? b.notable(events, String(args.forAgent)) : events };
+        })
+      );
+
+    case "board_sign":
+      return text(withBoard((b) => b.signHead() ?? "Nothing to sign (no active session, missing key, or empty board)."));
+
+    case "board_trust":
+      return text(
+        withBoard((b) => ({ signedThrough: b.signedThrough(), signatures: b.verifySignatures() }))
+      );
 
     default:
       return text(`Unknown tool: ${name}`);
