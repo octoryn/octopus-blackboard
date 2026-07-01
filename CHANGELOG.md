@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
+## [0.1.3] - 2026-07-01
+
+### Changed
+
+- The `serve` dashboard now shows the Octoryn brand mark instead of a placeholder
+  emoji. The README shows the logo and a live screenshot of the kanban dashboard.
+
 ## [0.1.2] - 2026-07-01
 
 ### Added

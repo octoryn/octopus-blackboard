@@ -19,7 +19,7 @@ import type { RiskSeverity, FileChangeKind } from "./types.js";
  * overrides it.
  */
 const server = new Server(
-  { name: "octopus-blackboard", version: "0.1.2" },
+  { name: "octopus-blackboard", version: "0.1.3" },
   { capabilities: { tools: {} } },
 );
 

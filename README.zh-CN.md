@@ -1,3 +1,5 @@
+<img src="docs/octoryn-mark.png" alt="Octoryn" width="72" />
+
 # Octopus Blackboard（章鱼黑板）
 
 **面向 AI 编码 Agent 的共享记忆与协调层。**

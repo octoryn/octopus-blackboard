@@ -1,3 +1,5 @@
+<img src="docs/octoryn-mark.png" alt="Octoryn" width="72" />
+
 # Octopus Blackboard
 
 **A shared memory and coordination layer for AI coding agents.**

@@ -5,6 +5,13 @@
 本项目所有重要变更记录于此。格式基于
 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，达到 1.0 后遵循语义化版本。
 
+## [0.1.3] - 2026-07-01
+
+### 变更
+
+- `serve` 看板顶栏改用 Octoryn 品牌 logo（此前是占位 emoji）。README 展示 logo 以及
+  看板的真实截图。
+
 ## [0.1.2] - 2026-07-01
 
 ### 新增
