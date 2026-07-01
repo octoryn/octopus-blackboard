@@ -6,6 +6,7 @@ import { loadConfig } from "./config.js";
 import { serve } from "./serve.js";
 import { createSyncTarget } from "./sync.js";
 import { ADAPTERS, getAdapter } from "./adapters.js";
+import { MCP_CLIENTS, mcpConfig, type McpClient } from "./mcp-config.js";
 import * as git from "./git.js";
 import type { RiskSeverity } from "./types.js";
 
@@ -546,6 +547,29 @@ program
     }
     console.log(`Files touched by both ${a} and ${bName}:`);
     for (const f of files) console.log(`  ${f}`);
+  });
+
+program
+  .command("mcp-config")
+  .argument("[client]", `client: ${MCP_CLIENTS.join(" | ")}`, "json")
+  .option("--agent <name>", "identity to write as (defaults to the client name)")
+  .option("--dir <path>", "explicit board directory (default: discover .octoboard/)")
+  .option("--local <entry>", "use a local build path instead of the npx bin (dev)")
+  .description("print MCP client config to connect a CLI to this blackboard")
+  .action((client, opts) => {
+    if (!MCP_CLIENTS.includes(client)) {
+      console.error(`Unknown client '${client}'. Available: ${MCP_CLIENTS.join(", ")}`);
+      process.exitCode = 1;
+      return;
+    }
+    const result = mcpConfig(client as McpClient, {
+      agent: opts.agent,
+      boardDir: opts.dir,
+      localEntry: opts.local
+    });
+    console.log(`# Add to: ${result.path}`);
+    if (result.note) console.log(`# ${result.note}`);
+    console.log(result.content);
   });
 
 program

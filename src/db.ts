@@ -254,10 +254,14 @@ const INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_agent, read_at);
 CREATE INDEX IF NOT EXISTS idx_files_task ON files_changed(task_key);
 CREATE INDEX IF NOT EXISTS idx_files_session ON files_changed(session_id);
+CREATE INDEX IF NOT EXISTS idx_files_path ON files_changed(path);
 CREATE INDEX IF NOT EXISTS idx_timeline_seq ON timeline(seq);
 CREATE INDEX IF NOT EXISTS idx_timeline_session ON timeline(session_id);
 CREATE INDEX IF NOT EXISTS idx_risks_status ON risks(status);
 CREATE INDEX IF NOT EXISTS idx_attr_commit ON attributions(commit_sha);
 CREATE INDEX IF NOT EXISTS idx_attr_file ON attributions(file);
+CREATE INDEX IF NOT EXISTS idx_attr_actor ON attributions(actor);
+CREATE INDEX IF NOT EXISTS idx_attr_type ON attributions(actor_type);
 CREATE INDEX IF NOT EXISTS idx_reviews_commit ON reviews(commit_sha);
+CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions(finished_at, last_heartbeat);
 `;

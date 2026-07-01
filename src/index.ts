@@ -18,6 +18,8 @@ export { createSyncTarget, FileSyncTarget, PostgresSyncTarget } from "./sync.js"
 export type { SyncTarget, SyncCounts } from "./sync.js";
 export { getAdapter, genericAdapter, ADAPTERS } from "./adapters.js";
 export type { Adapter, IngestEvent } from "./adapters.js";
+export { mcpConfig, MCP_CLIENTS } from "./mcp-config.js";
+export type { McpClient, McpConfigOptions, McpConfigResult } from "./mcp-config.js";
 export { loadConfig, resolveBoardDir, findBoardDir } from "./config.js";
 export type { BoardConfig, ConfigOverrides } from "./config.js";
 export * from "./types.js";

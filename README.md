@@ -296,22 +296,39 @@ The dashboard is dependency-free (`node:http`), strictly read-only (non-GET is
 refused), and auto-refreshes: live timeline, sessions, conflict/attribution
 state, and the accountability scorecard.
 
-## MCP server
+## MCP server — connect any CLI
 
-Any MCP-capable agent can read and write the board directly. Register the
-server (stdio transport):
+The blackboard speaks standard MCP over stdio, so **any** MCP-capable client
+(Claude Code, Cursor, Codex, Gemini CLI, VS Code, Windsurf, …) can read and
+write the board. Generate the exact config for your client in one step:
+
+```bash
+blackboard mcp-config cursor        # → ~/.cursor/mcp.json block
+blackboard mcp-config claude-code   # → project .mcp.json block
+blackboard mcp-config codex         # → ~/.codex/config.toml (TOML)
+blackboard mcp-config gemini        # → ~/.gemini/settings.json block
+blackboard mcp-config vscode        # → .vscode/mcp.json (servers block)
+blackboard mcp-config               # → generic mcpServers JSON (any client)
+```
+
+Each prints where to paste it and the ready-to-use snippet, e.g.:
 
 ```json
 {
   "mcpServers": {
     "blackboard": {
       "command": "npx",
-      "args": ["octopus-blackboard-mcp"],
-      "env": { "OCTOBOARD_AGENT": "claude", "OCTOBOARD_DIR": "/path/to/repo/.octoboard" }
+      "args": ["-y", "octopus-blackboard-mcp"],
+      "env": { "OCTOBOARD_AGENT": "cursor" }
     }
   }
 }
 ```
+
+The agent identity defaults to the client name (so Cursor writes as `cursor`,
+Codex as `codex`); override with `--agent`. The board is auto-discovered from
+`.octoboard/` in the working directory, or pin it with `--dir`. Two CLIs
+pointed at the same `.octoboard/` now share one board — that's the whole point.
 
 Tools exposed: `board_status`, `board_timeline`, `board_note`, `board_claim`,
 `board_message`, `board_inbox`, `board_decision`, `board_evidence`,
