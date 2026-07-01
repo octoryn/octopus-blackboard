@@ -49,6 +49,17 @@ npm run build      # 编译到 dist/
 需要 Node ≥ 22。黑板就是 `.octoboard/` 下的单个 SQLite 文件，从当前工作目录向上
 查找（类似 `.git`）。
 
+## 见证效果
+
+[`examples/two-agents.sh`](./examples/two-agents.sh) 演绎旗舰场景——Claude Code
+与 Codex 在同一个仓库上共享一块板:认领冲突、实时同文件碰撞、决策、归属、落入对方
+收件箱的 handoff、AI review、人类审批的 CI 门禁(阻断 → 放行)、问责计分卡、
+blame→叙事,以及带 session 签名的可校验哈希链。在一个空目录里跑:
+
+```bash
+bash examples/two-agents.sh          # 需要 PATH 上有 `octoboard`
+```
+
 ## CLI
 
 ```bash
@@ -197,29 +208,110 @@ blackboard verify      # 链完整性 + 哪些 session 签过、trusted/stale
 **stale**——即使签名本身在密码学上仍有效,篡改也会显形。这还不是完整 PKI(无密钥分
 发/吊销)。
 
-## MCP 服务器
+## 摄取 CLI 会话记录
 
-任何支持 MCP 的 agent 都能直接读写黑板。注册服务器（stdio transport）：
+不必手动调 API——直接从 CLI 的会话 transcript 灌入,文件改动、决策、笔记都会落到当前
+session 上:
+
+```bash
+blackboard ingest ~/.claude/transcript.jsonl --format claude-code
+blackboard ingest session.jsonl --format codex        # 还支持:gemini、grok
+blackboard ingest events.json    --format generic --dry-run
+```
+
+`claude-code`/`codex`/`gemini`/`grok` 用一套保守的 tool-use JSONL 启发式(从
+`file_path`/`notebook_path` 及 patch/write 工具调用里找文件改动)。`generic` 读一套
+规范化 schema——这是**任意** CLI 的稳定接入路径:
+
+```json
+{ "events": [
+  { "type": "file", "path": "src/auth.ts", "change": "modified" },
+  { "type": "decision", "title": "use ed25519", "rationale": "small keys" },
+  { "type": "note", "text": "left policy edge cases for review" }
+] }
+```
+
+## 团队后端
+
+板子保持本地优先;sync 把可携带的归属记录(绝不含板子的私有哈希链)同步到团队存储
+——一个共享文件或 Postgres:
+
+```bash
+blackboard sync push --target /shared/team.json          # 文件(共享盘)
+blackboard sync pull --target postgres://host/blackboard # 团队数据库(需要 `pg`)
+```
+
+在线状态与合规:
+
+```bash
+blackboard session heartbeat        # 标记 session 存活(区分活跃/陈旧)
+# `blackboard file ...` 现在会在另一个活跃 session 正在改同一文件时告警
+
+blackboard prune --before 2026-01-01T00:00:00Z   # 保留策略:删旧 messages/
+                                                 # evidence/file-changes(时间线保留)
+blackboard redact 42 --reason PII                # 隐藏某条时间线条目的内容
+```
+
+`prune` 绝不动 append-only 时间线(审计轨迹)。`redact` 在**所有读路径**上抹掉内容
+——时间线覆盖层*和*底层源行(消息正文、evidence 笔记等),让 `inbox`/`status`/看板
+都无法泄露——同时保持哈希链可校验。它不是密码学擦除:原始 summary 仍留在时间线行里
+以保证链可验,所以别存你必须能销毁的机密。要防御有数据库写权限的攻击者,请把 head
+hash 锚定到外部(一个 commit、一份日志、另一台机器)——当 `verify` 无法确认尾部时会
+显示 `unanchored` 警告。
+
+## 可见性
+
+```bash
+blackboard report          # 计分卡:review 覆盖率、AI/人类比例、按 agent 分解
+blackboard blame src/auth.ts 42   # 从一行回溯 → 写它的 session,及其其它工作、
+                                  # 决策、handoff(blame → 叙事)
+blackboard serve           # 只读本地 web 看板(http://localhost:4319)
+```
+
+看板零依赖(`node:http`)、严格只读(拒绝非 GET),自动刷新:实时时间线、sessions、
+冲突/归属状态,以及问责计分卡。
+
+## MCP 服务器 — 接入任意 CLI
+
+黑板用标准 MCP over stdio,所以**任何**支持 MCP 的客户端(Claude Code、Cursor、
+Codex、Gemini CLI、VS Code、Windsurf……)都能读写这块板。一步生成你客户端专属的配置:
+
+```bash
+blackboard mcp-config cursor        # → ~/.cursor/mcp.json 片段
+blackboard mcp-config claude-code   # → 项目 .mcp.json 片段
+blackboard mcp-config codex         # → ~/.codex/config.toml(TOML)
+blackboard mcp-config gemini        # → ~/.gemini/settings.json 片段
+blackboard mcp-config vscode        # → .vscode/mcp.json(servers 块)
+blackboard mcp-config               # → 通用 mcpServers JSON(任意客户端)
+```
+
+每条都会打印粘贴位置和现成片段,例如:
 
 ```json
 {
   "mcpServers": {
     "blackboard": {
       "command": "npx",
-      "args": ["octopus-blackboard-mcp"],
-      "env": { "OCTOBOARD_AGENT": "claude", "OCTOBOARD_DIR": "/path/to/repo/.octoboard" }
+      "args": ["-y", "octopus-blackboard-mcp"],
+      "env": { "OCTOBOARD_AGENT": "cursor" }
     }
   }
 }
 ```
 
-提供的工具：`board_status`、`board_timeline`、`board_note`、`board_claim`、
-`board_message`、`board_inbox`、`board_decision`、`board_evidence`、
-`board_file_changed`、`board_risk`、`board_handoff`;归属层:`session_start`、
-`session_stop`、`board_link`、`board_attribute`、`board_review`、`board_who`、
-`board_explain`、`board_unreviewed`;以及治理链:`board_check`、`board_export`、
-`board_import`、`board_trailers`、`board_since`、`board_sign`、`board_trust`。每个
-工具都接受可选的 `agent` 参数,用于按调用覆盖身份。
+agent 身份默认取客户端名(Cursor 写成 `cursor`,Codex 写成 `codex`),用 `--agent`
+覆盖。板子从工作目录的 `.octoboard/` 自动发现,或用 `--dir` 固定。两个 CLI 指向同一
+个 `.octoboard/` 就共享一块板——这正是全部意义所在。
+
+提供的工具——协调:`board_status`、`board_timeline`、`board_note`、`board_claim`、
+`board_message`、`board_inbox`、`board_handoffs`、`board_decision`、
+`board_evidence`、`board_file_changed`、`board_risk`、`board_handoff`、
+`board_heartbeat`、`board_since`;归属:`session_start`、`session_stop`、
+`board_link`、`board_attribute`、`board_review`、`board_who`、`board_explain`、
+`board_blame`、`board_unreviewed`、`board_report`;治理与可携带:`board_check`、
+`board_export`、`board_import`、`board_trailers`、`board_sign`、`board_trust`、
+`board_prune`、`board_redact`、`board_ingest`。每个工具都接受可选的 `agent` 参数,
+用于按调用覆盖身份。
 
 推荐模式：agent 在**开始工作前**调用 `board_status` 看看其他人在干什么，然后边做
 边写。

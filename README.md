@@ -343,14 +343,15 @@ Codex as `codex`); override with `--agent`. The board is auto-discovered from
 `.octoboard/` in the working directory, or pin it with `--dir`. Two CLIs
 pointed at the same `.octoboard/` now share one board — that's the whole point.
 
-Tools exposed: `board_status`, `board_timeline`, `board_note`, `board_claim`,
-`board_message`, `board_inbox`, `board_decision`, `board_evidence`,
-`board_file_changed`, `board_risk`, `board_handoff`; the attribution layer:
-`session_start`, `session_stop`, `board_link`, `board_attribute`,
-`board_review`, `board_who`, `board_explain`, `board_unreviewed`; and the
-governance chain: `board_check`, `board_export`, `board_import`,
-`board_trailers`, `board_since`, `board_sign`, `board_trust`. Each accepts an
-optional `agent` argument to override the acting identity per call.
+Tools exposed — coordination: `board_status`, `board_timeline`, `board_note`,
+`board_claim`, `board_message`, `board_inbox`, `board_handoffs`,
+`board_decision`, `board_evidence`, `board_file_changed`, `board_risk`,
+`board_handoff`, `board_heartbeat`, `board_since`; attribution: `session_start`,
+`session_stop`, `board_link`, `board_attribute`, `board_review`, `board_who`,
+`board_explain`, `board_blame`, `board_unreviewed`, `board_report`; governance &
+portability: `board_check`, `board_export`, `board_import`, `board_trailers`,
+`board_sign`, `board_trust`, `board_prune`, `board_redact`, `board_ingest`. Each
+accepts an optional `agent` argument to override the acting identity per call.
 
 The recommended pattern: an agent calls `board_status` **before** starting work
 to see what everyone else is doing, and writes as it goes.

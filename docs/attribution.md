@@ -1,5 +1,7 @@
 # Attribution data flow
 
+[简体中文](./attribution.zh-CN.md)
+
 How a change moves from an agent's keystrokes to a queryable, auditable
 attribution record — and where the boundaries are.
 
