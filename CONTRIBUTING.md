@@ -64,6 +64,18 @@ npm test              # vitest
 - Update the relevant docs (`README.md`, `README.zh-CN.md`, `docs/`) when you
   change the CLI / MCP / library surface.
 
+## CI / Releases
+
+- **CI** (`.github/workflows/ci.yml`) runs typecheck, format check, lint, build,
+  and tests on every push to `main` and every PR.
+- **Releases** (`.github/workflows/release.yml`) are **tag-triggered**: pushing a
+  `v*` tag (e.g. `v0.2.4`) whose number matches `package.json` runs the full gate
+  and publishes to npm with provenance. Publishing needs the repo secret
+  `NPM_TOKEN` (an npm automation token). The token lives only in GitHub Actions
+  secrets — never in the repo, a local `.npmrc`, or a chat. Creating and pushing
+  the tag is the human approval gate (see
+  [docs/development-workflow.md](docs/development-workflow.md)).
+
 ## Reporting bugs / security issues
 
 File a normal issue for bugs. For security vulnerabilities, follow

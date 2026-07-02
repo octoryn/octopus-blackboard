@@ -60,6 +60,16 @@ npm test              # vitest
 - 当你改动 CLI / MCP / 库的表面时,更新相关文档（`README.md`、`README.zh-CN.md`、
   `docs/`）。
 
+## CI / 发布
+
+- **CI**(`.github/workflows/ci.yml`)在每次推送到 `main` 及每个 PR 上运行 typecheck、
+  format 检查、lint、build 和测试。
+- **发布**(`.github/workflows/release.yml`)由 **tag 触发**:推送一个版本号与
+  `package.json` 一致的 `v*` tag(如 `v0.2.4`),会跑完整门禁并带 provenance 发布到
+  npm。发布需要仓库 secret `NPM_TOKEN`(npm automation token)。token 只存在于 GitHub
+  Actions secrets——绝不放进仓库、本地 `.npmrc` 或聊天里。创建并推送 tag 就是人工审批
+  关口(见 [docs/development-workflow.zh-CN.md](docs/development-workflow.zh-CN.md))。
+
 ## 报告 bug / 安全问题
 
 普通 bug 提 issue。安全漏洞请遵循 [SECURITY.md](SECURITY.md),不要开公开 issue。
