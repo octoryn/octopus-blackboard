@@ -5,6 +5,14 @@
 本项目所有重要变更记录于此。格式基于
 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，达到 1.0 后遵循语义化版本。
 
+## [0.2.2] - 2026-07-02
+
+### 变更
+
+- **许可证从 AGPL-3.0-or-later 改为 Apache-2.0。** 由版权持有者(Octoryn)重新授权为
+  宽松许可,去除 copyleft / 网络分发义务,便于将 Blackboard 作为感知底座被采用。已更新
+  `LICENSE` 文件、`package.json` 与两份 README。
+
 ## [0.2.1] - 2026-07-02
 
 ### 回退

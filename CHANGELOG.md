@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
+## [0.2.2] - 2026-07-02
+
+### Changed
+
+- **License changed from AGPL-3.0-or-later to Apache-2.0.** Relicensed by the
+  copyright holder (Octoryn) to a permissive license, removing copyleft/network
+  obligations and easing adoption of Blackboard as an awareness substrate. The
+  `LICENSE` file, `package.json`, and both READMEs are updated.
+
 ## [0.2.1] - 2026-07-02
 
 ### Reverted

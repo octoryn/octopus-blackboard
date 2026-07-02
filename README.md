@@ -439,4 +439,4 @@ never rewritten. Postgres sync and change subscriptions are on the roadmap.
 
 ## License
 
-AGPL-3.0-or-later © Octoryn. See [LICENSE](./LICENSE).
+Apache-2.0 © Octoryn. See [LICENSE](./LICENSE).
