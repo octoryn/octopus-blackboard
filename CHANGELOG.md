@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
+## [0.2.4] - 2026-07-02
+
+### Added
+
+- **CI + automated release via GitHub Actions.** `ci.yml` runs the full gate on
+  every push/PR; `release.yml` publishes to npm with provenance on a `v*` tag.
+  This is the first release cut through the automated pipeline (no locally-held
+  token).
+
+### Fixed
+
+- **Packaging:** restored `pg` (and its dependency tree) in `package-lock.json`,
+  which had drifted out of sync with `package.json`, so `npm ci` installs cleanly.
+
 ## [0.2.3] - 2026-07-02
 
 ### Changed
