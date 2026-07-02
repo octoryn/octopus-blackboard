@@ -5,19 +5,21 @@
 本项目所有重要变更记录于此。格式基于
 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，达到 1.0 后遵循语义化版本。
 
-## [0.2.0] - 2026-07-02
+## [0.2.1] - 2026-07-02
 
-### 新增
+### 回退
 
-- **`octoboard export-provenance`** —— 把看板导出为开放 `provenance/0` wire
-  format 下的签名、防篡改快照。一份对看板 risks / tasks / decisions / reviews 的
-  可移植、可验证记录,自身即可用于审计追溯、合规归档、分析,以及在工具间搬运状态。
-  Ed25519 签名与规范化 JSON 作为 Blackboard 的**自有基建**实现
-  (`src/provenance-export.ts`);该格式是字节层面的开放契约,而非共享库。选项:
-  `--out`、`--key`、`--as-actor`。见 [docs/provenance-export.zh-CN.md](docs/provenance-export.zh-CN.md)。
+- 回退 provenance 导出,因为它「解释」了工作,而非仅仅「记录」工作。Blackboard 仍是
+  记录 / 感知底座。本次移除 `export-provenance` 命令、`provenance/0` 生产者
+  (`src/provenance-export.ts`)及其测试,以及 0.2.0 引入的 README/docs 引用。架构原因:
+  **协议传输事实;消费者推导意义。** 导出一个 `issue` / `decision` / `evidence` 图
+  (含推断因果边与立场)会让板子替消费者「解释」工作——这是记录层绝不能做的。
 
-  `provenance/0` 与消费者无关:审计、分析、治理,或一个 project-memory 引擎都可以
-  消费它,而任何这样的消费者都只是众多之一 —— Blackboard 谁都不依赖。
+## [0.2.0] - 2026-07-01 —— 已被 0.2.1 取代
+
+- 新增了 `export-provenance` 命令,导出签名的 `provenance/0` 图包。**已在 0.2.1 中被
+  取代并回退**,原因见上(架构层面);该功能不再向前延续。GitHub 的 `v0.2.0` tag 保留
+  以存档——0.2.0 未被抹除,而是被取代。
 
 ## [0.1.6] - 2026-07-01
 
