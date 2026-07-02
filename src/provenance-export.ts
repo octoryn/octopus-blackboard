@@ -1,15 +1,18 @@
 /**
- * Provenance Bundle export (protocol `provenance/0`).
+ * Provenance Bundle export (open wire format `provenance/0`).
  *
  * Blackboard is an evidence-capture layer. This module lets it *emit* what it has
- * captured as a signed, portable bundle that ANY consumer can ingest — an audit
- * system, an analytics pipeline, or Project Memory. Blackboard does not know or
- * care who consumes it, and depends on no consumer's code.
+ * captured as a signed, tamper-evident, portable snapshot — useful on its own for
+ * audit trails, compliance archives, analytics, and moving board state between
+ * tools. Blackboard does not know or care who consumes the export and depends on
+ * no consumer's code.
  *
- * The bundle format and canonical signing are defined by the shared spec (see the
- * Project Memory repo's docs/protocol.md). We re-implement that tiny spec here
- * independently — a wire format, not a shared library. The only contract is the
- * bytes on the wire.
+ * `provenance/0` is an OPEN wire format, not any one product's format. Blackboard
+ * implements it as its own infrastructure (see docs/provenance-export.md for the
+ * shape and signing rules it emits); the format is a contract of bytes on the
+ * wire, never a shared library. Many kinds of system can consume it — audit,
+ * analytics, governance, or a project-memory engine — and a project-memory engine
+ * is merely one such consumer, not something Blackboard depends on or serves.
  */
 import Database from "better-sqlite3";
 import { createPrivateKey, createPublicKey, generateKeyPairSync, sign } from "node:crypto";
