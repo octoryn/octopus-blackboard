@@ -4,6 +4,11 @@
 
 感谢你有兴趣贡献。本指南覆盖基础。
 
+> **多个 agent 或会话?** 先读
+> [docs/development-workflow.zh-CN.md](docs/development-workflow.zh-CN.md):一个会话
+> = 一个工作树 = 一个分支,不直接向 `main` 提交,未经明确人工批准不打标签/发布/发包。
+> 背景见 [ADR 0001](docs/adr/0001-shared-worktree-collision.zh-CN.md)。
+
 ## 开发环境
 
 ```bash
