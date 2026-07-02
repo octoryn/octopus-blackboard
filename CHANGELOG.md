@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
+## [0.2.0] - 2026-07-02
+
+### Added
+
+- **`octoboard export-provenance`** — export the board as a signed,
+  tamper-evident snapshot in the open `provenance/0` wire format. A portable,
+  verifiable record of the board's risks, tasks, decisions, and reviews, useful
+  on its own for audit trails, compliance archives, analytics, and moving state
+  between tools. Ed25519 signing and canonical JSON are implemented as
+  Blackboard's own infrastructure (`src/provenance-export.ts`); the format is an
+  open contract of bytes, not a shared library. Options: `--out`, `--key`,
+  `--as-actor`. See [docs/provenance-export.md](docs/provenance-export.md).
+
+  `provenance/0` is consumer-agnostic: audit, analytics, governance, or a
+  project-memory engine may consume it, and any such consumer is only one of
+  many — Blackboard depends on none of them.
+
 ## [0.1.6] - 2026-07-01
 
 ### Documentation

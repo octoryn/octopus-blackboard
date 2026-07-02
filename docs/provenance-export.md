@@ -1,5 +1,7 @@
 # Provenance export (`provenance/0`)
 
+[简体中文](./provenance-export.zh-CN.md)
+
 `octoboard export-provenance` emits the board as a **signed, tamper-evident
 snapshot** in the open `provenance/0` wire format. This is a Blackboard-native
 capability: a portable, verifiable export of what the board has captured, useful

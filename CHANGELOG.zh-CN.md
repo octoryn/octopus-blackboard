@@ -5,6 +5,20 @@
 本项目所有重要变更记录于此。格式基于
 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，达到 1.0 后遵循语义化版本。
 
+## [0.2.0] - 2026-07-02
+
+### 新增
+
+- **`octoboard export-provenance`** —— 把看板导出为开放 `provenance/0` wire
+  format 下的签名、防篡改快照。一份对看板 risks / tasks / decisions / reviews 的
+  可移植、可验证记录,自身即可用于审计追溯、合规归档、分析,以及在工具间搬运状态。
+  Ed25519 签名与规范化 JSON 作为 Blackboard 的**自有基建**实现
+  (`src/provenance-export.ts`);该格式是字节层面的开放契约,而非共享库。选项:
+  `--out`、`--key`、`--as-actor`。见 [docs/provenance-export.zh-CN.md](docs/provenance-export.zh-CN.md)。
+
+  `provenance/0` 与消费者无关:审计、分析、治理,或一个 project-memory 引擎都可以
+  消费它,而任何这样的消费者都只是众多之一 —— Blackboard 谁都不依赖。
+
 ## [0.1.6] - 2026-07-01
 
 ### 文档
