@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
+## [0.2.3] - 2026-07-02
+
+### Changed
+
+- **Contact details moved to the `octopusos.ai` domain.** Maintainer/contact:
+  Ran Tao `<ran@octopusos.ai>` (`package.json` author). Security reports now go to
+  `security@octopusos.ai` (`SECURITY.md`), conduct reports to
+  `conduct@octopusos.ai` (`CODE_OF_CONDUCT.md`).
+
 ## [0.2.2] - 2026-07-02
 
 ### Changed

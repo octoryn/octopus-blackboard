@@ -5,6 +5,15 @@
 本项目所有重要变更记录于此。格式基于
 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，达到 1.0 后遵循语义化版本。
 
+## [0.2.3] - 2026-07-02
+
+### 变更
+
+- **联系方式迁移到 `octopusos.ai` 域名。** 维护者 / 联系人:Ran Tao
+  `<ran@octopusos.ai>`(`package.json` author)。安全报告改至
+  `security@octopusos.ai`(`SECURITY.md`),行为准则报告改至
+  `conduct@octopusos.ai`(`CODE_OF_CONDUCT.md`)。
+
 ## [0.2.2] - 2026-07-02
 
 ### 变更
