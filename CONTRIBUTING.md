@@ -4,6 +4,11 @@
 
 Thanks for your interest in contributing. This guide covers the basics.
 
+> **Multiple agents or sessions?** Read
+> [docs/development-workflow.md](docs/development-workflow.md) first: one session =
+> one worktree = one branch, no direct commits to `main`, and no tag/release/publish
+> without explicit human approval. Background: [ADR 0001](docs/adr/0001-shared-worktree-collision.md).
+
 ## Development setup
 
 ```bash
