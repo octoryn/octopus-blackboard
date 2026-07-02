@@ -5,6 +5,19 @@
 本项目所有重要变更记录于此。格式基于
 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，达到 1.0 后遵循语义化版本。
 
+## [0.2.4] - 2026-07-02
+
+### 新增
+
+- **GitHub Actions CI + 自动发布。** `ci.yml` 在每次 push/PR 跑完整门禁;`release.yml`
+  在推送 `v*` tag 时带 provenance 发布到 npm。这是首个经自动化管线发布的版本(不再使用
+  本地持有的 token)。
+
+### 修复
+
+- **打包:** 恢复 `package-lock.json` 中的 `pg`(及其依赖树)——此前它与 `package.json`
+  漂移不同步,导致 `npm ci` 失败。现在可干净安装。
+
 ## [0.2.3] - 2026-07-02
 
 ### 变更
