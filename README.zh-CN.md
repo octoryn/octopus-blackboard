@@ -8,6 +8,10 @@
 
 [English](./README.md)
 
+> **[Octopus Core](https://github.com/octoryn) 的一部分 —— 受治理 AI 的开源基础设施栈。** 每个仓库只做一件事，沿 agent 生命周期组合：[Scout](https://github.com/octoryn/octopus-scout) · [Observe](https://github.com/octoryn/octopus-observe) · [Experience](https://github.com/octoryn/octopus-experience) · [Blackboard](https://github.com/octoryn/octopus-blackboard) · [Runtime](https://github.com/octoryn/octopus-runtime) · [Replay](https://github.com/octoryn/octopus-replay) —— [Inspect](https://github.com/octoryn/octopus-inspect) 横贯每一环做治理。
+>
+> **本仓库 —— Blackboard · 协同：** 为编码 agent 提供共享认知。
+
 ![工作示意:多个 agent 通过 MCP 接入共享黑板,黑板只记录和暴露、从不编排,产出冲突感知看板、AI 归属、CI 审查门禁、防篡改审计](docs/diagrams/value-flow.png)
 
 ---
