@@ -6,22 +6,25 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
-## [0.2.0] - 2026-07-02
+## [0.2.1] - 2026-07-02
 
-### Added
+### Reverted
 
-- **`octoboard export-provenance`** — export the board as a signed,
-  tamper-evident snapshot in the open `provenance/0` wire format. A portable,
-  verifiable record of the board's risks, tasks, decisions, and reviews, useful
-  on its own for audit trails, compliance archives, analytics, and moving state
-  between tools. Ed25519 signing and canonical JSON are implemented as
-  Blackboard's own infrastructure (`src/provenance-export.ts`); the format is an
-  open contract of bytes, not a shared library. Options: `--out`, `--key`,
-  `--as-actor`. See [docs/provenance-export.md](docs/provenance-export.md).
+- Reverts provenance export because it interpreted work instead of only capturing
+  it. Blackboard remains a capture/awareness substrate. This removes the
+  `export-provenance` command, the `provenance/0` producer
+  (`src/provenance-export.ts`) and its tests, and the README/docs references
+  added in 0.2.0. The architectural reason: **protocols should transport facts;
+  consumers derive meaning.** Emitting an `issue` / `decision` / `evidence` graph
+  (with inferred causal edges and stances) made the board interpret work on a
+  consumer's behalf, which a capture layer must not do.
 
-  `provenance/0` is consumer-agnostic: audit, analytics, governance, or a
-  project-memory engine may consume it, and any such consumer is only one of
-  many — Blackboard depends on none of them.
+## [0.2.0] - 2026-07-01 — superseded by 0.2.1
+
+- Added an `export-provenance` command that emitted a signed `provenance/0` graph
+  bundle. **Superseded and reverted in 0.2.1** on architectural grounds (see
+  above); the feature is not carried forward. The GitHub `v0.2.0` tag is retained
+  for history — 0.2.0 is not erased, it is superseded.
 
 ## [0.1.6] - 2026-07-01
 

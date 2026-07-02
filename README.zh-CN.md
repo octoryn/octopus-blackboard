@@ -216,25 +216,6 @@ blackboard verify      # 链完整性 + 哪些 session 签过、trusted/stale
 **stale**——即使签名本身在密码学上仍有效,篡改也会显形。这还不是完整 PKI(无密钥分
 发/吊销)。
 
-## 导出 provenance bundle
-
-把看板导出为开放 `provenance/0` wire format 下的**签名、防篡改快照**——一份对已
-捕获的 risks / tasks / decisions / reviews 的可移植、可验证记录:
-
-```bash
-octoboard export-provenance --out board.bundle.json          # 临时签名密钥
-octoboard export-provenance --key board.key.pem --as-actor my-board
-```
-
-这对 Blackboard **自身**就有用——审计追溯、合规归档、分析,以及在工具之间搬运看板
-状态,与"是否有人消费、谁来消费"无关。`provenance/0` 是**开放格式**,不属于任何产品;
-Blackboard 把签名与规范化作为**自有基建**实现(见 [docs/provenance-export.zh-CN.md](docs/provenance-export.zh-CN.md))。
-
-**很多种系统都能消费这份导出**——审计系统、分析流水线、治理引擎,或一个 project-memory
-引擎。project-memory 引擎只是**众多可能消费者之一**:Blackboard 既不依赖它、也不是
-为它而建,即使没有任何消费者在场,这份导出也完全成立。bundle 承载证据、而非结论——
-它从不声称任何东西"trusted";一份导出该信多少,由消费者决定。
-
 ## 摄取 CLI 会话记录
 
 不必手动调 API——直接从 CLI 的会话 transcript 灌入,文件改动、决策、笔记都会落到当前

@@ -3,11 +3,6 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { Command } from "commander";
 import { Board } from "./board.js";
 import { loadConfig } from "./config.js";
-import {
-  exportBundleFromPath,
-  generateExportKey,
-  keyFromPem,
-} from "./provenance-export.js";
 import { serve } from "./serve.js";
 import { createSyncTarget } from "./sync.js";
 import { ADAPTERS, getAdapter } from "./adapters.js";
@@ -22,7 +17,7 @@ program
   .description(
     "Octopus Blackboard — shared memory & AI attribution for coding agents",
   )
-  .version("0.2.0")
+  .version("0.2.1")
   .option("--board <dir>", "board directory (defaults to nearest .octoboard/)")
   .option("--as <agent>", "identity to write as (or set OCTOBOARD_AGENT)")
   .option(
@@ -1537,32 +1532,6 @@ function renderStatus(
     `\naudit: ${mark} ${chain.length} entries${chain.ok ? "" : ` — BROKEN at ${chain.brokenAtSeq}`}`,
   );
 }
-
-program
-  .command("export-provenance")
-  .description(
-    "export the board as a signed Provenance Bundle (protocol provenance/0) for any consumer — audit, analytics, or a project-memory system",
-  )
-  .option("--out <file>", "write the bundle JSON to a file (default: stdout)")
-  .option("--key <pem>", "Ed25519 private key PEM file to sign with (default: ephemeral)")
-  .option("--as-actor <id>", "issuer id recorded in the bundle", "octopus-blackboard")
-  .action((opts: { out?: string; key?: string; asActor: string }) => {
-    const dbPath = loadConfig(overrides()).dbPath;
-    const key = opts.key
-      ? keyFromPem(opts.asActor, readFileSync(opts.key, "utf8"))
-      : generateExportKey(opts.asActor);
-    const bundle = exportBundleFromPath(dbPath, key, Date.now());
-    const json = JSON.stringify(bundle, null, 2);
-    if (opts.out) {
-      writeFileSync(opts.out, json);
-      const n = bundle.payload.nodes?.length ?? 0;
-      console.error(
-        `wrote ${opts.out} — ${n} nodes, signed by ${key.actorId}${opts.key ? "" : " (ephemeral key)"}`,
-      );
-    } else {
-      console.log(json);
-    }
-  });
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : String(err));

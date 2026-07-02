@@ -249,30 +249,6 @@ A session auto-signs its head on `session stop`. A signature over a head becomes
 even though the signature itself stays cryptographically valid. This is not yet
 a full PKI (no key distribution or revocation).
 
-## Exporting a provenance bundle
-
-Export the board as a **signed, tamper-evident snapshot** in the open
-`provenance/0` wire format — a portable, verifiable record of the risks, tasks,
-decisions, and reviews the board has captured:
-
-```bash
-octoboard export-provenance --out board.bundle.json          # ephemeral signing key
-octoboard export-provenance --key board.key.pem --as-actor my-board
-```
-
-This is useful to Blackboard on its own — audit trails, compliance archives,
-analytics, and moving board state between tools — independent of who, if anyone,
-consumes it. `provenance/0` is an **open format**, not any product's format;
-Blackboard implements the signing and canonicalization as its own infrastructure
-(see [docs/provenance-export.md](docs/provenance-export.md)).
-
-**Many kinds of system can consume the export** — an audit system, an analytics
-pipeline, a governance engine, or a project-memory engine. A project-memory engine
-is only *one possible consumer*: Blackboard does not depend on it, is not built for
-it, and the export is fully meaningful with no such consumer present. The bundle
-carries evidence, never conclusions — it never declares anything "trusted"; how
-much to believe an export is the consumer's decision.
-
 ## Ingesting CLI transcripts
 
 Populate the board from a CLI's session transcript instead of calling the API
