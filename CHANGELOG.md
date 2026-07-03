@@ -6,6 +6,33 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
+## [0.3.0] - 2026-07-03
+
+### Added
+
+- **`quickstart` — zero-config onboarding in one command.** `npx octopus-blackboard
+  quickstart` (also `octoboard quickstart`) collapses the old 4-5 step setup:
+  it initializes `.octoboard/` if absent (reusing the real init path; idempotent,
+  never clobbers an existing board), detects your MCP client, prints a
+  ready-to-paste config snippet plus a 3-line "paste → reload → done" guide, and
+  does one test write + status read to prove the board is live (skip with
+  `--no-probe`; force a client with `--client`). New module `src/quickstart.ts`
+  exports `detectClient` / `runQuickstart` / `renderQuickstart` / `boardExistsAt`.
+- **"Get Started in 2 Minutes"** section at the top of both READMEs, and a
+  **`docs/entry-point.md`** (+ zh-CN) narrative on why to adopt Blackboard first.
+- A local `server.json` (official MCP-registry schema) as a **starting point** for
+  a future registry listing — see `docs/registry-metadata.md`. The actual
+  submission is a separate, human-gated step; nothing here contacts a registry.
+
+### Fixed
+
+- **Client auto-detection no longer guesses confidently wrong.** A bare `.vscode/`
+  (an editor-settings dir) is no longer reported as "VS Code" — the actual
+  `.vscode/mcp.json` is now required; and a bare `.mcp.json` (shared by several
+  clients) maps to the generic snippet instead of asserting "Claude Code". The
+  definitive `.claude/` marker still wins when present. Prevents pasting the
+  snippet into the wrong config file. Found by adversarial review; regression-tested.
+
 ## [0.2.4] - 2026-07-02
 
 ### Added

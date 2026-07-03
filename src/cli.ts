@@ -7,6 +7,7 @@ import { serve } from "./serve.js";
 import { createSyncTarget } from "./sync.js";
 import { ADAPTERS, getAdapter } from "./adapters.js";
 import { MCP_CLIENTS, mcpConfig, type McpClient } from "./mcp-config.js";
+import { renderQuickstart, runQuickstart } from "./quickstart.js";
 import * as git from "./git.js";
 import type { RiskSeverity } from "./types.js";
 
@@ -75,6 +76,45 @@ program
         ? `Board already present at ${cfg.dbPath}`
         : `Initialized board at ${cfg.dbPath}`,
     );
+  });
+
+program
+  .command("quickstart")
+  .description(
+    "zero-config onboarding: init the board, detect your MCP client, print a paste-ready config",
+  )
+  .option(
+    "--client <client>",
+    `force a client instead of auto-detecting: ${MCP_CLIENTS.join(" | ")}`,
+  )
+  .option(
+    "--agent <name>",
+    "identity the connected client writes under (defaults to the client id)",
+  )
+  .option("--no-probe", "skip the one-write + one-read proof step")
+  .option(
+    "--local <entry>",
+    "use a local build path instead of the npx bin (dev)",
+  )
+  .action((opts) => {
+    if (opts.client && !MCP_CLIENTS.includes(opts.client)) {
+      console.error(
+        `Unknown client '${opts.client}'. Available: ${MCP_CLIENTS.join(", ")}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    const result = runQuickstart({
+      cwd: process.cwd(),
+      client: opts.client as McpClient | undefined,
+      agent: opts.agent,
+      noProbe: opts.probe === false,
+      localEntry: opts.local,
+    });
+    console.log(renderQuickstart(result));
+    if (result.probe && !result.probe.chainOk) {
+      process.exitCode = 1;
+    }
   });
 
 program

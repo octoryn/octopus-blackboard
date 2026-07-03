@@ -1,0 +1,32 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "io.github.octoryn/octopus-blackboard",
+  "description": "A shared memory and coordination layer for AI coding agents. Not an orchestrator — a blackboard. Local-first SQLite, tamper-evident timeline, provider-independent AI/human attribution.",
+  "version": "0.3.0",
+  "repository": {
+    "url": "https://github.com/octoryn/octopus-blackboard",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "octopus-blackboard",
+      "version": "0.3.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "OCTOBOARD_AGENT",
+          "description": "Identity the server writes under, e.g. \"cursor\" or \"claude-code\". Defaults to \"anon\".",
+          "isRequired": false
+        },
+        {
+          "name": "OCTOBOARD_DIR",
+          "description": "Explicit board directory. Omitted → the server discovers the nearest .octoboard/ by walking up from the working directory.",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

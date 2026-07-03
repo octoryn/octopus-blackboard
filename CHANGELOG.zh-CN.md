@@ -5,6 +5,30 @@
 本项目所有重要变更记录于此。格式基于
 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，达到 1.0 后遵循语义化版本。
 
+## [0.3.0] - 2026-07-03
+
+### 新增
+
+- **`quickstart` —— 一条命令完成零配置上手。** `npx octopus-blackboard quickstart`
+  (也可用 `octoboard quickstart`)将原来的 4-5 步设置压缩为一步:若无则初始化
+  `.octoboard/`(复用真实的 init 路径;幂等,绝不覆盖已有看板),检测你的 MCP 客户端,
+  打印可直接粘贴的配置片段与三行"粘贴 → 重载 → 完成"指引,并做一次测试写入 + 状态
+  读取以证明看板可用(可用 `--no-probe` 跳过;可用 `--client` 强制指定客户端)。
+  新模块 `src/quickstart.ts` 导出 `detectClient` / `runQuickstart` /
+  `renderQuickstart` / `boardExistsAt`。
+- 两个 README 顶部新增**"两分钟上手"**小节,以及 **`docs/entry-point.md`**(+ zh-CN)
+  阐述"为何首先采用 Blackboard"的叙事。
+- 本地 `server.json`(官方 MCP 注册表 schema)作为未来注册表登记的**起点** —— 见
+  `docs/registry-metadata.md`。实际提交是单独的、需人工把关的步骤;此处不与任何
+  注册表通信。
+
+### 修复
+
+- **客户端自动检测不再自信地误判。** 裸的 `.vscode/`(编辑器设置目录)不再被报告为
+  "VS Code" —— 现要求实际存在 `.vscode/mcp.json`;裸的 `.mcp.json`(多个客户端共用)
+  映射为通用片段,而非断言"Claude Code"。存在时,权威的 `.claude/` 标记仍优先。避免把
+  片段粘贴到错误的配置文件。由对抗性评审发现,已加回归测试。
+
 ## [0.2.4] - 2026-07-02
 
 ### 新增

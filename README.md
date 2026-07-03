@@ -54,6 +54,33 @@ The blackboard cuts straight through this. Every write appends a
 entire history is auditable and replayable — and any after-the-fact edit to an
 earlier entry breaks verification.
 
+## Get Started in 2 Minutes
+
+Blackboard is the easiest way into the Octopus stack — pure coordination memory
+that works today with just Claude Code and Cursor, no orchestrator required.
+One command sets everything up:
+
+```bash
+npx octopus-blackboard quickstart
+```
+
+That single command: creates the local board (`.octoboard/`) if it isn't there,
+**auto-detects your MCP client** (`.claude/` → Claude Code, `.cursor/` → Cursor,
+… otherwise a generic snippet), prints the exact **paste-ready config** for it,
+and proves the board works with one write + one read.
+
+Then just:
+
+1. **Paste** the printed config block into the file it names.
+2. **Reload** your MCP client (restart it, or reopen the project).
+3. **You're done.** Ask your agent to call `board_status`, then
+   `board_note "hello"` — that's your first board action, on a shared,
+   tamper-evident timeline.
+
+Re-running `quickstart` is always safe: it never clobbers an existing board or
+its history. New to the idea of adopting a coordination layer *first*? See
+[**Why adopt Blackboard first**](docs/entry-point.md).
+
 ## Install
 
 ```bash
