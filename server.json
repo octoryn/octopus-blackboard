@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
   "name": "io.github.octoryn/octopus-blackboard",
-  "description": "A shared memory and coordination layer for AI coding agents. Not an orchestrator — a blackboard. Local-first SQLite, tamper-evident timeline, provider-independent AI/human attribution.",
+  "description": "Shared memory & coordination for AI coding agents — a blackboard, not an orchestrator.",
   "version": "0.3.1",
   "repository": {
     "url": "https://github.com/octoryn/octopus-blackboard",
