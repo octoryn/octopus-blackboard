@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
+## [0.3.1] - 2026-07-03
+
+### Added
+
+- **MCP registry publishing.** Declares `mcpName: io.github.octoryn/octopus-blackboard`
+  in `package.json` (the registry's npm ownership check) and adds an `octopus-blackboard`
+  bin pointing at the stdio MCP server, so a registry `npx octopus-blackboard` launches
+  the server. A `.github/workflows/publish-mcp.yml` publishes `server.json` to the
+  official MCP registry via GitHub OIDC (no secret; run after the npm release is live).
+  `octopus-blackboard-mcp` remains available and unchanged.
+
 ## [0.3.0] - 2026-07-03
 
 ### Added

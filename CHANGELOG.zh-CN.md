@@ -5,6 +5,17 @@
 本项目所有重要变更记录于此。格式基于
 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，达到 1.0 后遵循语义化版本。
 
+## [0.3.1] - 2026-07-03
+
+### 新增
+
+- **MCP 注册表发布。** 在 `package.json` 中声明
+  `mcpName: io.github.octoryn/octopus-blackboard`(注册表的 npm 归属校验),并新增
+  指向 stdio MCP 服务器的 `octopus-blackboard` bin,使注册表侧 `npx octopus-blackboard`
+  可直接启动服务器。新增 `.github/workflows/publish-mcp.yml`,通过 GitHub OIDC
+  将 `server.json` 发布到官方 MCP 注册表(无需密钥;在 npm 发布生效后运行)。
+  `octopus-blackboard-mcp` 仍保留且不变。
+
 ## [0.3.0] - 2026-07-03
 
 ### 新增

@@ -1,0 +1,33 @@
+name: Publish to MCP Registry
+
+# Publishes server.json to the official MCP registry using GitHub OIDC — no
+# secret to manage; the repo's OIDC token proves ownership of the
+# io.github.octoryn/* namespace.
+#
+# Triggered manually (workflow_dispatch) AFTER the npm package for this version
+# is live, because the registry validates the `mcpName` field on the published
+# npm package. Running on a tag push would race the npm release workflow.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # required for OIDC authentication
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to MCP Registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server.json to the MCP Registry
+        run: ./mcp-publisher publish

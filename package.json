@@ -1,6 +1,7 @@
 {
   "name": "octopus-blackboard",
-  "version": "0.3.0",
+  "version": "0.3.1",
+  "mcpName": "io.github.octoryn/octopus-blackboard",
   "description": "A shared memory and coordination layer for AI coding agents. Not an orchestrator — a blackboard.",
   "license": "Apache-2.0",
   "author": "Ran Tao <ran@octopusos.ai>",
@@ -37,6 +38,7 @@
   "bin": {
     "octoboard": "./dist/cli.js",
     "blackboard": "./dist/cli.js",
+    "octopus-blackboard": "./dist/mcp.js",
     "octopus-blackboard-mcp": "./dist/mcp.js"
   },
   "files": [
