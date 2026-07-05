@@ -8,7 +8,7 @@
 
 [English](./README.md)
 
-> **[Octopus Core](https://github.com/octoryn) 的一部分 —— 受治理 AI 的开源基础设施栈。** 每个仓库只做一件事，沿 agent 生命周期组合：[Scout](https://github.com/octoryn/octopus-scout) · [Observe](https://github.com/octoryn/octopus-observe) · [Experience](https://github.com/octoryn/octopus-experience) · [Blackboard](https://github.com/octoryn/octopus-blackboard) · [Runtime](https://github.com/octoryn/octopus-runtime) · [Replay](https://github.com/octoryn/octopus-replay) —— [Inspect](https://github.com/octoryn/octopus-inspect) 横贯每一环做治理。整个技术栈都构建于同一个根语元之上 —— [Evidence](https://github.com/octoryn/octopus-evidence)，即那个规范、防篡改的原子，是整个栈赖以构建的根范畴。
+> **[Octopus Core](https://github.com/octoryn) 的一部分 —— 受治理 AI 的开源基础设施栈。** 每个仓库只做一件事，沿 agent 生命周期组合：[Scout](https://github.com/octoryn/octopus-scout) · [Observe](https://github.com/octoryn/octopus-observe) · [Experience](https://github.com/octoryn/octopus-experience) · [Blackboard](https://github.com/octoryn/octopus-blackboard) · [Workstate](https://github.com/octoryn/octopus-workstate) · [Runtime](https://github.com/octoryn/octopus-runtime) · [Replay](https://github.com/octoryn/octopus-replay) —— [Inspect](https://github.com/octoryn/octopus-inspect) 横贯每一环做治理。整个技术栈都构建于同一个根语元之上 —— [Evidence](https://github.com/octoryn/octopus-evidence)，即那个规范、防篡改的原子，是整个栈赖以构建的根范畴。
 >
 > **本仓库 —— Blackboard · 协同：** 为编码 agent 提供共享认知。
 
