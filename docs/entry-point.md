@@ -60,12 +60,13 @@ To be clear about what exists versus what is planned:
   `blackboard`), the MCP server any client can connect to, the hash-chained
   timeline, sessions, provider-independent AI/human attribution keyed to Git
   commits, reviews, the query layer, and the read-only `serve` dashboard.
-- **On the roadmap (not yet here):** Postgres sync at scale and change
-  subscriptions are partially in place and hardening. Deeper integration with
-  other Octopus repos — for example, a richer bridge to **octopus-evidence** so
-  that evidence captured on the board flows into a dedicated evidence and
-  verification layer — is **future work, not a current feature.** Today
-  Blackboard stays a capture layer: it records evidence as facts, and leaves the
+- **Beta / roadmap boundary:** Postgres sync target support exists for portable
+  attribution records, with live CI coverage; operating it at scale and change
+  subscriptions are still hardening. Deeper integration with other Octopus repos
+  — for example, a richer bridge to **octopus-evidence** so that evidence
+  captured on the board flows into a dedicated evidence and verification layer
+  — is **future work, not a current feature.** Today Blackboard stays a capture
+  layer: it records evidence as facts, and leaves the
   derivation of meaning to consumers. Do not adopt it expecting an
   evidence-verification pipeline that is not yet built.
 

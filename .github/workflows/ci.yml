@@ -33,3 +33,38 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Package smoke
+        run: npm run release:smoke
+
+  postgres-sync-live:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: octoryn
+          POSTGRES_PASSWORD: octoryn
+          POSTGRES_DB: octopus_blackboard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U octoryn -d octopus_blackboard"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Postgres sync contract
+        run: npx vitest run tests/postgresSyncLive.test.ts
+        env:
+          OCTOBOARD_TEST_PG_URL: postgres://octoryn:octoryn@127.0.0.1:5432/octopus_blackboard
