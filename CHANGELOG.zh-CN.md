@@ -5,6 +5,20 @@
 本项目所有重要变更记录于此。格式基于
 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，达到 1.0 后遵循语义化版本。
 
+## [Unreleased]
+
+### 新增
+
+- `prepublishOnly` 现在运行完整 verify 门禁，并执行 `npm pack --dry-run`。
+- CI 现在包含包内容冒烟检查，以及基于真实 Postgres service container 的 Postgres
+  sync live 合约测试。
+
+### 变更
+
+- README/status 文档更新为 v0.3 public beta 口径：本地 board、MCP、归属、
+  签名 bundle、retention/redaction、quickstart、registry workflow，以及用于
+  可携带归属记录的 beta Postgres sync。
+
 ## [0.3.1] - 2026-07-03
 
 ### 新增

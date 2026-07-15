@@ -455,18 +455,23 @@ better-sqlite3 (local-first, default)
   + MCP server   (read / write board)
   + CLI          (octoboard ...)
   + hash-chain audit log (the timeline)
-  + optional Postgres sync   (planned)
+  + optional Postgres sync   (portable attribution records)
   + optional git / file watcher (planned)
 ```
 
 ## Status
 
-Early MVP (v0.1). Working today: local SQLite board, CLI (`octoboard` /
+Public beta (v0.3). Working today: local SQLite board, CLI (`octoboard` /
 `blackboard`), MCP server, a verifiable hash-chained timeline, first-class
 sessions, provider-independent AI/human attribution keyed to Git commits,
-reviews, and the query layer (`who`, `explain`, `commits`, `unreviewed`,
-`joint`). Git integration is read-only plus additive `git notes` — history is
-never rewritten. Postgres sync and change subscriptions are on the roadmap.
+reviews, the query layer (`who`, `explain`, `commits`, `unreviewed`, `joint`),
+the read-only `serve` dashboard, signed import/export bundles, retention,
+redaction, quickstart, and MCP registry metadata/publishing workflow. Git
+integration is read-only plus additive `git notes` — history is never rewritten.
+Team sync supports a shared JSON file and a Postgres target for portable
+attribution records; the board's private hash chain remains local by design.
+Change subscriptions and deeper Octopus cross-repo bridges are still roadmap
+work.
 
 ## License
 

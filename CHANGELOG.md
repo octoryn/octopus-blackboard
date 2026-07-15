@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 semantic versioning once it reaches 1.0.
 
+## [Unreleased]
+
+### Added
+
+- `prepublishOnly` now runs the full verify gate plus `npm pack --dry-run`.
+- CI now runs a package smoke check and a live Postgres sync contract against a
+  real Postgres service container.
+
+### Changed
+
+- README/status docs now reflect the v0.3 public beta surface: local board,
+  MCP, attribution, signed bundles, retention/redaction, quickstart, registry
+  workflow, and beta Postgres sync for portable attribution records.
+
 ## [0.3.1] - 2026-07-03
 
 ### Added

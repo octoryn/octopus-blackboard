@@ -407,17 +407,20 @@ better-sqlite3（本地优先，默认）
   + MCP 服务器   （读 / 写黑板）
   + CLI          （octoboard ...）
   + 哈希链审计日志（timeline）
-  + 可选 Postgres sync   （规划中）
+  + 可选 Postgres sync   （可携带归属记录）
   + 可选 git / file watcher（规划中）
 ```
 
 ## 状态
 
-早期 MVP（v0.1）。已可用:本地 SQLite 黑板、CLI(`octoboard` / `blackboard`)、
-MCP 服务器、可校验的哈希链 timeline、一等 session、provider 无关的 AI/人类归属(挂
-到 Git commit)、review,以及查询层(`who`、`explain`、`commits`、`unreviewed`、
-`joint`)。Git 集成为只读 + additive `git notes`——绝不 rewrite 历史。Postgres
-同步与变更订阅在路线图上。
+Public beta（v0.3）。已可用：本地 SQLite 黑板、CLI（`octoboard` /
+`blackboard`）、MCP 服务器、可校验的哈希链 timeline、一等 session、provider
+无关的 AI/人类归属（挂到 Git commit）、review、查询层（`who`、`explain`、
+`commits`、`unreviewed`、`joint`）、只读 `serve` 仪表盘、签名 import/export
+bundle、retention、redaction、quickstart，以及 MCP registry 元数据/发布 workflow。
+Git 集成为只读 + additive `git notes`——绝不 rewrite 历史。团队同步支持共享 JSON
+文件与 Postgres target，用于可携带的归属记录；黑板私有哈希链仍按设计保留在本地。
+变更订阅与更深的 Octopus 跨仓库桥接仍在路线图上。
 
 ## 许可证
 
